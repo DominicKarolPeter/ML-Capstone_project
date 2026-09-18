@@ -21,6 +21,9 @@ data/*.parquet
 data/*.xlsx
 models/*.joblib
 models/*.pkl
+# the two saved models the Streamlit app serves are committed so the deployed app can load them
+!models/classification_svc.pkl
+!models/regression_random_forest.pkl
 
 # OS and editor files
 .DS_Store

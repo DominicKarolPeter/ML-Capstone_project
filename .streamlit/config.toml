@@ -1,0 +1,45 @@
+[theme]
+base = "dark"
+primaryColor = "#f5b94e"
+backgroundColor = "#0b1020"
+secondaryBackgroundColor = "#121a33"
+textColor = "#e6e9f0"
+font = "Inter, sans-serif"
+codeFont = "JetBrains Mono, monospace"
+baseRadius = "0.7rem"
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-normal.woff2"
+weight = 400
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-500-normal.woff2"
+weight = 500
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-600-normal.woff2"
+weight = 600
+
+[[theme.fontFaces]]
+family = "Inter"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-normal.woff2"
+weight = 700
+
+[[theme.fontFaces]]
+family = "JetBrains Mono"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.2.5/files/jetbrains-mono-latin-500-normal.woff2"
+weight = 500
+
+[[theme.fontFaces]]
+family = "JetBrains Mono"
+url = "https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.2.5/files/jetbrains-mono-latin-600-normal.woff2"
+weight = 600
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
