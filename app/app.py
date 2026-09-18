@@ -106,6 +106,7 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 1rem; }}
         background: var(--chip); border: 1px solid var(--border); color: var(--muted); animation: pop .55s cubic-bezier(.2,.8,.2,1) both;
         animation-delay: calc(.25s + var(--i) * 90ms); }}
 .chip b {{ font-family: {MONO}; font-weight: 600; color: var(--text); font-size: .9rem; }}
+.model-chips {{ margin: 1.9rem 0 0; }}
 .hero.space .chip {{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #c3cce6; }}
 .hero.space .chip b {{ color: #fff; }}
 
@@ -173,24 +174,21 @@ REG_LABELS = {
 }
 REG_PRIMARY = ["EPS", "PB ratio", "returnOnEquity", "Revenue Growth", "netProfitMargin", "Total assets", "returnOnAssets", "Net Income Growth"]
 
-REGRESSION_RESULTS = pd.DataFrame(
-    [["Random Forest", 0.1106, 45.53, 31.96], ["Gradient Boosting", 0.0999, 45.80, 31.90],
-     ["ElasticNet", 0.0399, 47.30, 33.32], ["Ridge", 0.0390, 47.33, 33.36], ["SVR", 0.0390, 47.33, 31.99],
-     ["Lasso", 0.0385, 47.34, 33.36], ["Decision Tree", 0.0367, 47.38, 33.30], ["KNN", 0.0359, 47.40, 32.84],
-     ["Linear", 0.0339, 47.45, 33.47], ["Polynomial", 0.0158, 47.89, 33.15]],
-    columns=["Model", "R2", "RMSE", "MAE"])
-CLASSIFICATION_RESULTS = pd.DataFrame(
-    [["SVC", 0.8223, 0.8197, 0.9442], ["Decision Tree (tuned)", 0.8207, 0.8190, 0.9233],
-     ["Logistic Regression", 0.8197, 0.8132, 0.9368], ["Decision Tree (baseline)", 0.7930, 0.7938, 0.8383],
-     ["KNN (tuned)", 0.7846, 0.7822, 0.9133], ["KNN (baseline)", 0.7737, 0.7705, 0.9006],
-     ["Gaussian Naive Bayes", 0.6142, 0.6186, 0.8769]],
-    columns=["Model", "Accuracy", "Weighted F1", "ROC-AUC"])
+#table header -> metric key inside each saved model
+CLS_COLUMNS = {"Accuracy": "Accuracy", "Weighted F1": "F1_Weighted", "ROC-AUC": "ROC_AUC_OvR"}
+REG_COLUMNS = {"R2": "R2", "RMSE": "RMSE", "MAE": "MAE"}
 
 
 @st.cache_resource(show_spinner=False)
 def load_bundles():
-    return (joblib.load(MODELS / "classification_svc.pkl"),
-            joblib.load(MODELS / "regression_random_forest.pkl"))
+    return (joblib.load(MODELS / "classification_models.pkl"),
+            joblib.load(MODELS / "regression_models.pkl"))
+
+
+def results_table(bundle, columns):
+    #one row per saved model in the bundle's ranked order
+    return pd.DataFrame([{"Model": n, **{h: bundle["models"][n]["metrics"][k] for h, k in columns.items()}}
+                         for n in bundle["model_order"]])
 
 
 #---------- icons and illustrations ----------
@@ -284,6 +282,25 @@ def text(kind, body):
     st.markdown(f'<div class="{kind}">{body}</div>', unsafe_allow_html=True)
 
 
+def model_picker(bundle, key, chips):
+    #selectbox on the left, the chosen model's held-out scores on the right
+    left, right = st.columns([5, 7], gap="large")
+    with left:
+        name = st.selectbox("Model", bundle["model_order"], key=key,
+                            format_func=lambda n: f"{n}  (best)" if n == bundle["best"] else n,
+                            help="Every Review 1 model is available. The best one on the held-out split is selected by default.")
+    m = bundle["models"][name]
+    with right:
+        st.markdown('<div class="chips model-chips">' + "".join(
+            f'<span class="chip" style="--i:{i}"><b>{v}</b>{k}</span>' for i, (v, k) in enumerate(chips(m)))
+            + '</div>', unsafe_allow_html=True)
+    return name, m
+
+
+def reg_label(f):
+    return f"Sector: {f[7:]}" if f.startswith("Sector_") else REG_LABELS.get(f, f)
+
+
 def bars(rows):
     #rows: (label, fraction 0..1, display text, colour); bars animate in from zero
     html = ""
@@ -340,20 +357,31 @@ def pct_rank(quantiles, v):
 
 
 #---------- model calls ----------
-def classify_koi(cls, values):
-    #anything not supplied stays NaN and the pipeline's median imputer fills it
+def koi_frame(cls, values):
+    #anything not supplied stays NaN and each pipeline's median imputer fills it
     row = {f: np.nan for f in cls["feature_columns"]}
     row.update(values)
     if values.get("koi_duration"):
         row["transit_depth_per_hour"] = values["koi_depth"] / values["koi_duration"]
-    frame = pd.DataFrame([row])[cls["feature_columns"]]
-    pipe = cls["pipeline"]
+    return pd.DataFrame([row])[cls["feature_columns"]]
+
+
+def classify_with(pipe, frame):
     label = str(pipe.predict(frame)[0])
     probs = dict(zip([str(c) for c in pipe.classes_], pipe.predict_proba(frame)[0]))
     return label, probs
 
 
-def predict_rows(reg, sector, rows):
+def classify_koi(cls, values, name):
+    return classify_with(cls["models"][name]["pipeline"], koi_frame(cls, values))
+
+
+def classify_all(cls, values):
+    frame = koi_frame(cls, values)
+    return {n: classify_with(cls["models"][n]["pipeline"], frame) for n in cls["model_order"]}
+
+
+def build_frame(reg, sector, rows):
     #rows: list of {feature: value}; missing features fall back to training medians
     frame = pd.DataFrame([{**{f: reg["train_medians"][f] for f in reg["raw_features"]}, **r} for r in rows])
     for f, (lo, hi) in reg["clip_bounds"].items():
@@ -361,20 +389,29 @@ def predict_rows(reg, sector, rows):
     for col in reg["sector_dummy_columns"]:
         frame[col] = 1 if col == f"Sector_{sector}" else 0
     frame["Growth Adjusted Margin"] = frame["Revenue Growth"] * frame["netProfitMargin"]
-    frame = frame.reindex(columns=reg["model_columns"], fill_value=0)
-    return reg["model"].predict(frame).astype(float)
+    return frame.reindex(columns=reg["model_columns"], fill_value=0)
 
 
-def predict_return(reg, sector, values):
-    return float(predict_rows(reg, sector, [values])[0])
+def predict_rows(reg, sector, rows, name):
+    return reg["models"][name]["model"].predict(build_frame(reg, sector, rows)).astype(float)
 
 
-def sensitivity(reg, sector, values, n=7):
+def predict_return(reg, sector, values, name):
+    return float(predict_rows(reg, sector, [values], name)[0])
+
+
+def predict_all(reg, sector, values):
+    frame = build_frame(reg, sector, [values])
+    return {n: float(reg["models"][n]["model"].predict(frame)[0]) for n in reg["model_order"]}
+
+
+def sensitivity(reg, sector, values, name, n=7):
     #move one indicator at a time across its training percentiles, keep everything else as entered
-    feats = [f for f in reg["feature_importance"] if f in reg["raw_features"]][:n]
+    weights = reg["models"][name]["weights"] or reg["models"][reg["best"]]["weights"]
+    feats = [f for f in weights if f in reg["raw_features"]][:n]
     grid = [10, 25, 50, 75, 90]
     rows = [{**values, f: reg["feature_quantiles"][f][p]} for f in feats for p in grid]
-    preds = predict_rows(reg, sector, rows).reshape(len(feats), len(grid))
+    preds = predict_rows(reg, sector, rows, name).reshape(len(feats), len(grid))
     out = []
     for f, p in zip(feats, preds):
         out.append(dict(feature=f, low=float(p[0]), high=float(p[-1]), lo=float(p.min()), hi=float(p.max()),
@@ -388,12 +425,12 @@ def result_card_html(body, extra_css=""):
             f".mono{{font-family:{MONO}}}{extra_css}</style>{body}")
 
 
-def classifier_card(label, probs, per_class):
+def classifier_card(label, probs, per_class, model_name):
     ranked = sorted(probs.items(), key=lambda kv: -kv[1])
     circ = 2 * np.pi * 46
     segs, start = "", 0.0
-    for name, p in ranked:
-        segs += (f'<circle class="seg" cx="60" cy="60" r="46" stroke="{CLASS_COLORS[name]}" data-off="{circ * (1 - p):.2f}" '
+    for cls_name, p in ranked:
+        segs += (f'<circle class="seg" cx="60" cy="60" r="46" stroke="{CLASS_COLORS[cls_name]}" data-off="{circ * (1 - p):.2f}" '
                  f'style="stroke-dasharray:{circ:.2f};stroke-dashoffset:{circ:.2f};transform:rotate({start * 360 - 90:.1f}deg)"/>')
         start += p
     rows = "".join(
@@ -426,7 +463,7 @@ def classifier_card(label, probs, per_class):
   <div class="donut"><svg viewBox="0 0 120 120"><circle class="ring" cx="60" cy="60" r="46"/>{segs}</svg>
     <div class="center"><div class="pct mono" data-count="{probs[label] * 100:.0f}" data-suffix="%" data-dec="0">0%</div><div class="lbl">{label}</div></div></div>
   <div class="info"><span class="badge">{label}</span>
-    <div class="note">The model reads this object as <b>{label}</b>: {CLASS_BLURB[label]}. On held-out objects it gets this class right
+    <div class="note"><b>{model_name}</b> reads this object as <b>{label}</b>: {CLASS_BLURB[label]}. On held-out objects it gets this class right
     with an F1 of <b>{f1:.2f}</b>{", the hardest of the three" if label == "CANDIDATE" else ""}.</div>{rows}</div>
 </div>
 <script>
@@ -450,7 +487,7 @@ def arc_point(deg, r, cx=120, cy=118):
     return cx + r * np.sin(a), cy - r * np.cos(a)
 
 
-def regression_card(pred, stats, sector, sector_median, r2):
+def regression_card(pred, stats, sector, sector_median, r2, model_name):
     ticks = ""
     for v in (-60, -30, 0, 30, 60):
         d = gauge_geom(v)
@@ -488,12 +525,12 @@ def regression_card(pred, stats, sector, sector_median, r2):
   </svg>
   <div class="info">
     <div class="big mono" data-count="{pred:.1f}" data-suffix="%" data-signed="1">+0.0%</div>
-    <div class="lbl">predicted price change over the next year</div>
+    <div class="lbl">{model_name}: predicted price change over the next year</div>
     <div class="line"><span>Training median</span><b class="mono">{stats['median']:+.1f}%</b></div>
     <div class="line"><span>{sector} median</span><b class="mono">{sector_median:+.1f}%</b></div>
     <div class="line"><span>Middle half (blue arc)</span><b class="mono">{stats['q25']:+.1f}% to {stats['q75']:+.1f}%</b></div>
-    <div class="small">That puts this company <b>{rel}</b> the typical one. Fundamentals explain only about {r2 * 100:.0f}% of the
-    variance in next-year returns, so read this as a lean from the numbers, not a forecast.</div>
+    <div class="small">That puts this company <b>{rel}</b> the typical one. {model_name} explains only about {r2 * 100:.0f}% of the
+    variance in held-out next-year returns, so read this as a lean from the numbers, not a forecast.</div>
   </div>
 </div>
 <script>
@@ -548,8 +585,8 @@ def koi_radar(cls, values):
     return themed(fig, 420, "Each measurement as a percentile of all Kepler objects")
 
 
-def confusion_heatmap(cls):
-    classes, cm = cls["classes"], np.array(cls["confusion"])
+def confusion_heatmap(cls, m):
+    classes, cm = cls["classes"], np.array(m["confusion"])
     share = cm / cm.sum(axis=1, keepdims=True)
     txt = [[f"{cm[i, j]:,}<br>{share[i, j]:.0%}" for j in range(3)] for i in range(3)]
     fig = go.Figure(go.Heatmap(
@@ -561,11 +598,11 @@ def confusion_heatmap(cls):
     return themed(fig, 360, f"Held-out confusion matrix ({cm.sum():,} objects)", legend=False)
 
 
-def per_class_bars(cls):
+def per_class_bars(cls, m):
     classes = cls["classes"]
     fig = go.Figure()
     for metric, color in (("precision", T["blue"]), ("recall", T["violet"]), ("f1", T["teal"])):
-        vals = [cls["per_class"][c][metric] for c in classes]
+        vals = [m["per_class"][c][metric] for c in classes]
         fig.add_trace(go.Bar(name=metric.upper() if metric == "f1" else metric, x=classes, y=vals, marker_color=color,
                              text=[f"{v:.2f}" for v in vals], textposition="outside", textfont=dict(size=11),
                              hovertemplate="%{x}<br>" + metric + " %{y:.3f}<extra></extra>"))
@@ -640,8 +677,45 @@ def sector_chart(reg, sector=None):
     return themed(fig, 28 * len(order) + 110, "Typical next-year change by sector (training companies)", legend=False)
 
 
-def actual_vs_predicted(reg):
-    y, p, m = np.asarray(reg["y_test"]), np.asarray(reg["y_pred_test"]), reg["metrics"]
+def all_models_regression(reg, preds, selected):
+    names = reg["model_order"][::-1]
+    vals, median = [preds[n] for n in names], reg["target_stats"]["median"]
+    fig = go.Figure(go.Bar(
+        x=vals, y=names, orientation="h", cliponaxis=False,
+        marker=dict(color=[T["amber"] if n == selected else T["teal"] for n in names], opacity=.9),
+        text=[f"{v:+.1f}%" for v in vals], textposition="outside", textfont=dict(size=11),
+        hovertemplate="%{y}: %{x:+.1f}%<extra></extra>"))
+    fig.add_vline(x=median, line_color=T["muted"], line_dash="dot")
+    fig.add_annotation(x=median, y=1.03, yref="paper", yanchor="bottom", text=f"training median {median:+.1f}%",
+                       showarrow=False, font=dict(color=T["muted"], size=11))
+    lo, hi = min(vals + [median, 0]), max(vals + [median, 0])
+    pad = max((hi - lo) * .25, 5)
+    fig.update_xaxes(range=[lo - pad, hi + pad], ticksuffix="%", title="Predicted next-year change (%)")
+    fig.update_yaxes(tickvals=names, ticktext=[f"<b>{n}</b>" if n == selected else n for n in names], automargin=True)
+    return themed(fig, 30 * len(names) + 130, "What every model predicts for these inputs", legend=False)
+
+
+def all_models_classification(cls, results, selected):
+    names = cls["model_order"][::-1]
+    fig = go.Figure()
+    for c, color in CLASS_COLORS.items():
+        p = [results[n][1].get(c, 0) for n in names]
+        fig.add_trace(go.Bar(y=names, x=p, orientation="h", name=c, marker_color=color, opacity=.9,
+                             text=[f"{v:.0%}" if v >= .12 else "" for v in p], textposition="inside", insidetextanchor="middle",
+                             textfont=dict(size=11, color="#0b1020" if MODE == "dark" else "#fff"),
+                             hovertemplate="%{y}<br>" + c + " %{x:.1%}<extra></extra>"))
+    for n in names:
+        label = results[n][0]
+        fig.add_annotation(x=1.02, y=n, xanchor="left", text=label, showarrow=False,
+                           font=dict(size=11, color=CLASS_COLORS.get(label, T["text"])))
+    fig.update_layout(barmode="stack", bargap=.3)
+    fig.update_xaxes(range=[0, 1.34], tickvals=[0, .25, .5, .75, 1], tickformat=".0%", title="Class probability")
+    fig.update_yaxes(tickvals=names, ticktext=[f"<b>{n}</b>" if n == selected else n for n in names], automargin=True)
+    return themed(fig, 34 * len(names) + 140, "How every model reads this object (label on the right is its call)")
+
+
+def actual_vs_predicted(reg, m, name):
+    y, p, m = np.asarray(reg["y_test"]), np.asarray(m["y_pred_test"]), m["metrics"]
     lo, hi = float(min(y.min(), p.min())), float(max(y.max(), p.max()))
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", name="perfect prediction",
@@ -653,7 +727,7 @@ def actual_vs_predicted(reg):
                        font=dict(size=11, color=T["text"]), bgcolor=T["surface2"], bordercolor=T["border"], borderpad=6)
     fig.update_xaxes(title="Actual next-year change (%)", ticksuffix="%")
     fig.update_yaxes(title="Predicted (%)", ticksuffix="%")
-    return themed(fig, 380, f"Actual vs predicted on {len(y):,} held-out companies")
+    return themed(fig, 380, f"{name}: actual vs predicted on {len(y):,} held-out companies")
 
 
 def comparison_bars(df, metric, best_label, title):
@@ -694,17 +768,22 @@ def sector_counts_chart(reg):
 #---------- pages ----------
 def page_classifier():
     cls, reg = load_bundles()
-    m, per_class = cls["metrics"], cls["per_class"]
-    total = cls["class_counts_all"]
+    best, total = cls["models"][cls["best"]]["metrics"], cls["class_counts_all"]
     hero("space", "Classification · NASA Kepler", "Exoplanet classifier", ICON_PLANET,
-         "Enter what Kepler measured for a transit signal and its host star. The tuned Support Vector Classifier, "
-         "the best of the five Review 1 classifiers, decides whether it looks like a confirmed planet, a candidate "
-         "or a false positive, shows how sure it is, and places it among the objects it learned from.",
+         "Pick any of the five Review 1 classifiers (the tuned Support Vector Classifier, the best, is selected by "
+         "default), enter what Kepler measured for a transit signal and its host star, and it decides whether the "
+         "object looks like a confirmed planet, a candidate or a false positive, shows how sure it is, and places "
+         "it among the objects it learned from.",
          [(f"{sum(total.values()):,}", "objects"), (f"{total.get('CONFIRMED', 0):,}", "confirmed planets"),
-          (f"{m['F1_Weighted']:.3f}", "weighted F1"), (f"{m['Accuracy']:.1%}", "accuracy")])
+          (f"{len(cls['models'])}", "model runs"), (f"{best['F1_Weighted']:.3f}", "best weighted F1")])
+
+    name, m = model_picker(cls, "cls_model", lambda m: [
+        (f"{m['metrics']['F1_Weighted']:.3f}", "weighted F1"), (f"{m['metrics']['Accuracy']:.1%}", "accuracy"),
+        (f"{m['metrics']['ROC_AUC_OvR']:.3f}", "ROC-AUC"), (m["params"], "settings")])
 
     text("section", "Measurements")
-    text("hint", "Pre-filled with typical (median) values. Change the ones you know, then classify.")
+    text("hint", "Pre-filled with typical (median) values. Change the ones you know, then classify. "
+                 "Switching the model above re-scores the same measurements.")
     with st.form("cls_form"):
         primary = [f for f in CLS_PRIMARY if f in cls["key_features"]]
         values = number_inputs(primary, CLS_LABELS, cls["feature_medians"], "c", ncols=4)
@@ -716,28 +795,30 @@ def page_classifier():
         with b:
             submitted = st.form_submit_button("Classify object", type="primary", width="stretch")
         if submitted:
-            st.session_state["cls"] = (values, classify_koi(cls, values))
+            st.session_state["cls_inputs"] = values
 
     left, right = st.columns([7, 5], gap="large")
-    if "cls" not in st.session_state:
+    if "cls_inputs" not in st.session_state:
         with left:
             text("empty", "Press <b>Classify object</b> to get the predicted class, the probability of each class, "
-                          "a comparison with typical objects of each kind, and a report card for the model.")
+                          "a comparison with typical objects of each kind, what every model says, and a report card "
+                          "for the selected model.")
             show(koi_scatter(cls))
             text("caption", "Confirmed planets and candidates sit in a band of small, shallow transits. False positives "
-                            "spread much wider, which is what the classifier picks up on.")
+                            "spread much wider, which is what the classifiers pick up on.")
         with right:
-            show(class_donut(total, "What the model learned from"))
-            text("caption", "All Kepler objects of interest by disposition. Half are false positives, so the classifier "
+            show(class_donut(total, "What the models learned from"))
+            text("caption", "All Kepler objects of interest by disposition. Half are false positives, so a classifier "
                             "has to earn its confirmed calls.")
         return
 
-    values, (label, probs) = st.session_state["cls"]
+    values = st.session_state["cls_inputs"]
+    label, probs = classify_koi(cls, values, name)
     with left:
-        classifier_card(label, probs, per_class)
+        classifier_card(label, probs, m["per_class"], name)
     with right:
-        show(class_donut(total, "What the model learned from"))
-    tab1, tab2, tab3 = st.tabs(["Where it sits", "Versus typical objects", "Model report card"])
+        show(class_donut(total, "What the models learned from"))
+    tab1, tab2, tab3, tab4 = st.tabs(["Where it sits", "Versus typical objects", "All models", "Model report card"])
     with tab1:
         show(koi_scatter(cls, values["koi_period"], values["koi_depth"]))
         text("caption", "The star is your object. Both axes are log-scaled because period and depth span several "
@@ -747,27 +828,51 @@ def page_classifier():
         text("caption", "Each axis is the percentile of that measurement among all Kepler objects, so the shapes are "
                         "comparable. Your object's shape follows the class it resembles most.")
     with tab3:
+        show(all_models_classification(cls, classify_all(cls, values), name))
+        text("caption", "The same measurements scored by every Review 1 classifier, ranked by held-out weighted F1 "
+                        "from the top. Gaussian Naive Bayes is usually all-or-nothing because it treats every "
+                        "measurement as independent.")
+    with tab4:
         r1, r2 = st.columns(2, gap="large")
         with r1:
-            show(confusion_heatmap(cls))
+            show(confusion_heatmap(cls, m))
         with r2:
-            show(per_class_bars(cls))
-        text("caption", "Rows are the true class, columns the prediction. Candidates are the hardest call: some are "
-                        "read as confirmed planets and some as false positives, which is why their F1 is the lowest.")
+            show(per_class_bars(cls, m))
+        text("caption", f"{name} on the held-out objects. Rows are the true class, columns the prediction. Candidates "
+                        "are the hardest call for every model: some are read as confirmed planets and some as false "
+                        "positives, which is why their F1 is the lowest.")
+
+
+def weights_panel(name, m):
+    if not m["weights"]:
+        return ('<div class="panel"><div class="section" style="margin-top:0">What the model weighs most</div>'
+                f'<div class="caption" style="margin:0">{name} has no built-in feature importance: it works from '
+                'distances between companies or from polynomial terms rather than per-feature weights. The '
+                '<b>What moves it</b> tab shows how it responds to each input instead.</div></div>')
+    imp = list(m["weights"].items())[:8]
+    top = imp[0][1]
+    return ('<div class="panel"><div class="section" style="margin-top:0">What the model weighs most</div>'
+            + bars([(reg_label(f), v / top, f"{v * 100:.1f}%", T["amber"]) for f, v in imp])
+            + f'<div class="caption" style="margin:.6rem 0 0">{m["weight_label"]}, for {name}.</div></div>')
 
 
 def page_regression():
     cls, reg = load_bundles()
-    m, s = reg["metrics"], reg["target_stats"]
+    best, s = reg["models"][reg["best"]]["metrics"], reg["target_stats"]
     hero("finance", "Regression · US stock fundamentals", "Stock return predictor", ICON_CHART,
-         "Give the tuned Random Forest, the best of the ten Review 1 regressors, a company's 2018 annual fundamentals "
-         "and it estimates the share price change over the following year, then shows where that sits among the "
-         "companies it was trained on and which inputs move it most.",
+         "Pick any of the ten Review 1 regressors (the tuned Random Forest, the best, is selected by default), give "
+         "it a company's 2018 annual fundamentals and it estimates the share price change over the following year, "
+         "then shows where that sits among the companies it was trained on and which inputs move it most.",
          [(f"{reg['n_train'] + reg['n_test']:,}", "companies"), (f"{len(reg['raw_features'])}", "indicators"),
-          (f"{m['R2']:.3f}", "test R2"), (f"{m['MAE']:.1f} pts", "test MAE")])
+          (f"{len(reg['models'])}", "models"), (f"{best['R2']:.3f}", "best test R2")])
+
+    name, m = model_picker(reg, "reg_model", lambda m: [
+        (f"{m['metrics']['R2']:.3f}", "test R2"), (f"{m['metrics']['RMSE']:.1f} pts", "RMSE"),
+        (f"{m['metrics']['MAE']:.1f} pts", "MAE"), (m["params"], "settings")])
 
     text("section", "Company fundamentals")
-    text("hint", "Pre-filled with training medians. Dollar figures are in USD, ratios as decimals (0.15 = 15%).")
+    text("hint", "Pre-filled with training medians. Dollar figures are in USD, ratios as decimals (0.15 = 15%). "
+                 "Switching the model above re-scores the same fundamentals.")
     with st.form("reg_form"):
         sectors = reg["sector_categories"]
         primary = [f for f in REG_PRIMARY if f in reg["raw_features"]]
@@ -786,58 +891,58 @@ def page_regression():
         with b:
             submitted = st.form_submit_button("Predict next-year return", type="primary", width="stretch")
         if submitted:
-            st.session_state["reg"] = (sector, values, predict_return(reg, sector, values))
-
-    imp = list(reg["feature_importance"].items())[:8]
-    top = imp[0][1]
-    importance_html = ('<div class="panel"><div class="section" style="margin-top:0">What the model weighs most</div>'
-                       + bars([(REG_LABELS.get(f, f), v / top, f"{v * 100:.1f}%", T["amber"]) for f, v in imp])
-                       + '<div class="caption" style="margin:.6rem 0 0">Random Forest feature importance, share of the total. '
-                         'Earnings per share leads, then balance-sheet size and profitability.</div></div>')
+            st.session_state["reg_inputs"] = (sector, values)
 
     left, right = st.columns([7, 5], gap="large")
-    if "reg" not in st.session_state:
+    if "reg_inputs" not in st.session_state:
         with left:
             text("empty", "Press <b>Predict next-year return</b> to get the predicted change, where it lands among the "
-                          "training companies, how each input moves it, and how the model did on held-out companies.")
+                          "training companies, how each input moves it, what every model says, and how the selected "
+                          "model did on held-out companies.")
             show(return_histogram(reg))
             text("caption", "The 2019 price change is centred near zero with a long right tail, so a typical company moved "
                             "only a little and a few moved a lot.")
         with right:
-            st.markdown(importance_html, unsafe_allow_html=True)
+            st.markdown(weights_panel(name, m), unsafe_allow_html=True)
         return
 
-    sector, values, pred = st.session_state["reg"]
+    sector, values = st.session_state["reg_inputs"]
+    pred = predict_return(reg, sector, values, name)
     with left:
-        regression_card(pred, s, sector, reg["sector_stats"][sector]["median"], m["R2"])
+        regression_card(pred, s, sector, reg["sector_stats"][sector]["median"], m["metrics"]["R2"], name)
     with right:
-        st.markdown(importance_html, unsafe_allow_html=True)
-    tab1, tab2, tab3, tab4 = st.tabs(["Among all companies", "What moves it", "By sector", "Model report card"])
+        st.markdown(weights_panel(name, m), unsafe_allow_html=True)
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Among all companies", "What moves it", "All models", "By sector", "Model report card"])
     with tab1:
         show(return_histogram(reg, pred))
         text("caption", "The amber line is this company. The dotted line is the median training company.")
     with tab2:
-        show(sensitivity_chart(sensitivity(reg, sector, values), pred))
-        text("caption", "For each input, the model was re-run with that one input at a low (10th percentile) and a "
+        show(sensitivity_chart(sensitivity(reg, sector, values, name), pred))
+        text("caption", f"For each input, {name} was re-run with that one input at a low (10th percentile) and a "
                         "high (90th percentile) value while everything else stayed as you entered it. Longer bars "
                         "mean the prediction is more sensitive to that input.")
     with tab3:
+        show(all_models_regression(reg, predict_all(reg, sector, values), name))
+        text("caption", "The same fundamentals scored by every Review 1 regressor, ranked by held-out R2 from the top. "
+                        "The linear models mostly agree with each other; the tree ensembles react more to the inputs.")
+    with tab4:
         show(sector_chart(reg, sector))
         text("caption", f"{sector} is highlighted. Sector is one of the model's inputs, so the same fundamentals "
                         "can lean differently in different sectors.")
-    with tab4:
-        show(actual_vs_predicted(reg))
+    with tab5:
+        show(actual_vs_predicted(reg, m, name))
         text("caption", "Every model in the capstone lands at a low R2 on this problem: annual fundamentals explain "
-                        "only a small share of next-year price moves. The Random Forest still ranks first and its "
+                        "only a small share of next-year price moves. The tree ensembles rank first, and their "
                         "predictions lean the right way more often than not.")
 
 
 def page_about():
     cls, reg = load_bundles()
     hero("plain", "23CSE301 · ML capstone", "About the models", ICON_ORBIT,
-         "What the two demos were trained on, how they compare with the other algorithms in the capstone, "
-         "and how to run everything yourself.",
-         [("10", "regression models"), ("7", "classification runs"), ("2", "datasets"), ("42", "random state")])
+         "What the models were trained on, how all of them compare on the same held-out splits, and how to run "
+         "everything yourself. Every model listed here can be selected on its page.",
+         [(f"{len(reg['models'])}", "regression models"), (f"{len(cls['models'])}", "classification runs"),
+          ("2", "datasets"), ("42", "random state")])
 
     c1, c2 = st.columns(2, gap="large")
     with c1:
@@ -848,9 +953,10 @@ def page_about():
                     f'plus an engineered depth-per-hour. The disposition score and false-positive flags are excluded to avoid leakage.</div>'
                     f'<div class="k">Preprocessing</div><div class="v">Median imputation and standard scaling, fitted on training folds only.</div>'
                     f'<div class="k">Split</div><div class="v">Stratified 80/20, {cls["n_train"]:,} train and {cls["n_test"]:,} test objects.</div>'
-                    f'<div class="k">Winner</div><div class="v">RBF-kernel SVC (C = 10), tuned with 5-fold GridSearchCV on weighted F1.</div>'
+                    f'<div class="k">Winner</div><div class="v">RBF-kernel SVC (C = 10), tuned with 5-fold GridSearchCV on weighted F1. '
+                    f'All {len(cls["models"])} runs are saved and selectable on the classifier page.</div>'
                     f'</div></div>', unsafe_allow_html=True)
-        show(grouped_metric_bars(CLASSIFICATION_RESULTS, ["Accuracy", "Weighted F1", "ROC-AUC"], [T["blue"], T["teal"], T["amber"]],
+        show(grouped_metric_bars(results_table(cls, CLS_COLUMNS), list(CLS_COLUMNS), [T["blue"], T["teal"], T["amber"]],
                                  "Part A classifiers on the same held-out split"))
     with c2:
         st.markdown(f'<div class="spec-card"><div class="spec-head">{ICON_CHART}Regression, next-year stock returns</div>'
@@ -860,17 +966,18 @@ def page_about():
                     f'<div class="k">Features</div><div class="v">41 curated fundamentals, one-hot sector and an engineered growth-adjusted margin.</div>'
                     f'<div class="k">Split</div><div class="v">Stratified 80/20 on target quintiles, {reg["n_train"]:,} train and {reg["n_test"]:,} test companies.</div>'
                     f'<div class="k">Winner</div><div class="v">Random Forest (100 trees, depth 8), tuned with 5-fold GridSearchCV. '
-                    f'Top-two cross-validated R2: Random Forest 0.061, Gradient Boosting 0.074.</div>'
+                    f'Top-two cross-validated R2: Random Forest 0.061, Gradient Boosting 0.074. '
+                    f'All {len(reg["models"])} regressors are saved and selectable on the stock page.</div>'
                     f'</div></div>', unsafe_allow_html=True)
-        show(comparison_bars(REGRESSION_RESULTS, "R2", "Random Forest", "All ten regressors by test R2"))
+        show(comparison_bars(results_table(reg, REG_COLUMNS), "R2", reg["best"], "All ten regressors by test R2"))
 
     tab1, tab2 = st.tabs(["Full results tables", "Dataset overview"])
     with tab1:
         text("section", "Classification, Part A (ranked by weighted F1)")
-        st.dataframe(CLASSIFICATION_RESULTS, hide_index=True, width="stretch",
-                     column_config={c: st.column_config.NumberColumn(format="%.4f") for c in ["Accuracy", "Weighted F1", "ROC-AUC"]})
+        st.dataframe(results_table(cls, CLS_COLUMNS), hide_index=True, width="stretch",
+                     column_config={c: st.column_config.NumberColumn(format="%.4f") for c in CLS_COLUMNS})
         text("section", "Regression (ranked by test R2)")
-        st.dataframe(REGRESSION_RESULTS, hide_index=True, width="stretch",
+        st.dataframe(results_table(reg, REG_COLUMNS), hide_index=True, width="stretch",
                      column_config={"R2": st.column_config.NumberColumn(format="%.4f"),
                                     "RMSE": st.column_config.NumberColumn(format="%.2f"),
                                     "MAE": st.column_config.NumberColumn(format="%.2f")})

@@ -1,27 +1,32 @@
-"""Export the two best capstone models plus the preprocessing artifacts the
-Streamlit app needs. This re-creates the exact notebook preprocessing so the
-app predicts with the same models reported in the notebooks.
+"""Export every Review 1 model plus the preprocessing artifacts the Streamlit app
+needs. This re-creates the exact notebook preprocessing and hyperparameters so
+the app predicts with the same models reported in the notebooks.
 
 Run from the repo root:
     python app/export_models.py
 
 Needs data/2018_Financial_Data.csv and data/kepler_koi.csv (see data/README.md).
-Writes models/regression_random_forest.pkl and models/classification_svc.pkl.
+Writes models/regression_models.pkl and models/classification_models.pkl.
 """
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
+from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
 from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, f1_score,
                              mean_absolute_error, mean_squared_error, r2_score, roc_auc_score)
 from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, label_binarize
-from sklearn.svm import SVC
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler, label_binarize
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 RANDOM_STATE = 42
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +55,16 @@ CLS_KEY_FEATURES = [
     'koi_period', 'koi_duration', 'koi_depth', 'koi_prad', 'koi_model_snr', 'koi_impact',
     'koi_teq', 'koi_steff', 'koi_slogg', 'koi_srad', 'koi_num_transits', 'koi_kepmag',
 ]
+
+#test-set scores the notebooks report; the export checks that every refitted model reproduces them
+NOTEBOOK_REGRESSION = {
+    "Random Forest": 0.1106, "Gradient Boosting": 0.0999, "ElasticNet": 0.0399, "Ridge": 0.0390, "SVR": 0.0390,
+    "Lasso": 0.0385, "Decision Tree": 0.0367, "KNN": 0.0359, "Linear": 0.0339, "Polynomial": 0.0158,
+}
+NOTEBOOK_CLASSIFICATION = {
+    "SVC": 0.8197, "Decision Tree (tuned)": 0.8190, "Logistic Regression": 0.8132, "Decision Tree (baseline)": 0.7938,
+    "KNN (tuned)": 0.7822, "KNN (baseline)": 0.7705, "Gaussian Naive Bayes": 0.6186,
+}
 
 
 def export_regression():
@@ -85,20 +100,65 @@ def export_regression():
     X_test = X_test.fillna(train_medians)
     X_train["Growth Adjusted Margin"] = X_train["Revenue Growth"] * X_train["netProfitMargin"]
     X_test["Growth Adjusted Margin"] = X_test["Revenue Growth"] * X_test["netProfitMargin"]
+    features_final = REG_FEATURES + ["Growth Adjusted Margin"]
 
-    #tuned random forest, the best model in the regression comparison table
-    rf = RandomForestRegressor(n_estimators=100, max_depth=8, min_samples_split=2,
-                               random_state=RANDOM_STATE, n_jobs=-1).fit(X_train, y_train)
-    pred = rf.predict(X_test)
-    metrics = {"R2": float(r2_score(y_test, pred)),
-               "RMSE": float(np.sqrt(mean_squared_error(y_test, pred))),
-               "MAE": float(mean_absolute_error(y_test, pred))}
-    importance = pd.Series(rf.feature_importances_, index=X_train.columns).sort_values(ascending=False)
+    def scaled(est):
+        #the notebook scaled the numeric columns only and left the sector dummies as 0/1
+        return Pipeline([("scale", ColumnTransformer([("num", StandardScaler(), features_final)], remainder="passthrough",
+                                                     verbose_feature_names_out=False)), ("model", est)])
+
+    #every regressor with the hyperparameters the notebook's grid searches picked
+    specs = [
+        ("Random Forest", RandomForestRegressor(n_estimators=100, max_depth=8, min_samples_split=2, random_state=RANDOM_STATE, n_jobs=-1),
+         "100 trees, max depth 8", "tree"),
+        ("Gradient Boosting", GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=2, random_state=RANDOM_STATE),
+         "200 trees, depth 2, learning rate 0.05", "tree"),
+        ("ElasticNet", scaled(ElasticNet(alpha=0.1, l1_ratio=0.9, random_state=RANDOM_STATE, max_iter=10000)), "alpha 0.1, l1 ratio 0.9", "linear"),
+        ("Ridge", scaled(Ridge(alpha=50, random_state=RANDOM_STATE)), "alpha 50", "linear"),
+        ("SVR", Pipeline([("scaler", StandardScaler()), ("svr", SVR(kernel="rbf", C=10, gamma="scale"))]), "RBF kernel, C 10", "none"),
+        ("Lasso", scaled(Lasso(alpha=0.1, random_state=RANDOM_STATE, max_iter=5000)), "alpha 0.1", "linear"),
+        ("Decision Tree", DecisionTreeRegressor(max_depth=3, min_samples_leaf=4, min_samples_split=2, random_state=RANDOM_STATE),
+         "max depth 3, min leaf 4", "tree"),
+        ("KNN", Pipeline([("scaler", StandardScaler()), ("knn", KNeighborsRegressor(n_neighbors=31, weights="distance", metric="manhattan"))]),
+         "k 31, manhattan, distance weights", "none"),
+        ("Linear", scaled(LinearRegression()), "ordinary least squares", "linear"),
+        ("Polynomial", Pipeline([("poly", PolynomialFeatures(degree=2, include_bias=False)), ("scaler", StandardScaler()),
+                                 ("ridge", Ridge(alpha=10000, random_state=RANDOM_STATE))]), "degree 2, ridge alpha 10000", "none"),
+    ]
+    models = {}
+    for name, est, params, kind in specs:
+        est.fit(X_train, y_train)
+        pred = est.predict(X_test)
+        metrics = {"R2": float(r2_score(y_test, pred)),
+                   "RMSE": float(np.sqrt(mean_squared_error(y_test, pred))),
+                   "MAE": float(mean_absolute_error(y_test, pred))}
+        if kind == "tree":
+            weights = pd.Series(est.feature_importances_, index=X_train.columns)
+            weight_label = "Feature importance, share of the total"
+        elif kind == "linear":
+            #coefficients on standardised features are comparable, the 0/1 sector dummies are not, so they are left out
+            coef = pd.Series(est.named_steps["model"].coef_, index=list(est.named_steps["scale"].get_feature_names_out()))
+            weights = coef[features_final].abs()
+            weights = weights / weights.sum()
+            weight_label = "Standardised coefficient size, share of the total"
+        else:
+            weights, weight_label = None, None
+        models[name] = {
+            "model": est, "metrics": metrics, "params": params, "kind": kind,
+            "y_pred_test": pred.astype(float),
+            "weights": None if weights is None else {k: float(v) for k, v in weights.sort_values(ascending=False).head(15).items()},
+            "weight_label": weight_label,
+        }
+        flag = "" if abs(metrics["R2"] - NOTEBOOK_REGRESSION[name]) < 0.0005 else "   <-- differs from the notebook"
+        print(f"  {name:18s} R2={metrics['R2']:.4f}  RMSE={metrics['RMSE']:.2f}  MAE={metrics['MAE']:.2f}{flag}")
+
+    order = sorted(models, key=lambda n: -models[n]["metrics"]["R2"])
     by_sector = (pd.DataFrame({"sector": sector_train.to_numpy(), "y": y_train.to_numpy()})
                  .groupby("sector")["y"].agg(["median", "mean", "count"]))
-
     bundle = {
-        "model": rf,
+        "models": models,
+        "model_order": order,
+        "best": order[0],
         "raw_features": REG_FEATURES,
         "key_features": [f for f in REG_KEY_FEATURES if f in REG_FEATURES],
         "model_columns": list(X_train.columns),
@@ -113,20 +173,17 @@ def export_regression():
                          "q75": float(y_train.quantile(0.75)),
                          "p10": float(y_train.quantile(0.10)),
                          "p90": float(y_train.quantile(0.90))},
-        "metrics": metrics,
         "y_train": y_train.to_numpy(dtype=float),
         "y_test": y_test.to_numpy(dtype=float),
-        "y_pred_test": pred.astype(float),
         "feature_quantiles": feature_quantiles,
         "sector_stats": {s: {"median": float(r["median"]), "mean": float(r["mean"]), "count": int(r["count"])}
                          for s, r in by_sector.iterrows()},
         "sector_counts": {str(k): int(v) for k, v in df_clean["Sector"].value_counts().items()},
-        "feature_importance": {k: float(v) for k, v in importance.head(15).items()},
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
     }
-    joblib.dump(bundle, MODELS / "regression_random_forest.pkl")
-    return metrics
+    joblib.dump(bundle, MODELS / "regression_models.pkl", compress=3)
+    return {n: models[n]["metrics"]["R2"] for n in order}
 
 
 def export_classification():
@@ -152,21 +209,38 @@ def export_classification():
         transformers=[("numeric", Pipeline(steps=[("imputer", SimpleImputer(strategy="median")),
                                                   ("scaler", StandardScaler())]), features)],
         remainder="drop", verbose_feature_names_out=False)
-    #tuned svc, the best model in the classification comparison table
-    pipe = Pipeline(steps=[("preprocess", preprocessor),
-                           ("model", SVC(kernel="rbf", C=10, gamma="scale", probability=True,
-                                         random_state=RANDOM_STATE))]).fit(X_train, y_train)
-    pred = pipe.predict(X_test)
-    proba = pipe.predict_proba(X_test)
-    classes = [str(c) for c in pipe.classes_]
+    classes = sorted(y.unique().tolist())
     y_bin = label_binarize(y_test, classes=classes)
-    metrics = {"Accuracy": float(accuracy_score(y_test, pred)),
-               "F1_Weighted": float(f1_score(y_test, pred, average="weighted")),
-               "ROC_AUC_OvR": float(roc_auc_score(y_bin, proba, multi_class="ovr", average="weighted"))}
-    report = classification_report(y_test, pred, labels=classes, output_dict=True)
-    per_class = {c: {"precision": float(report[c]["precision"]), "recall": float(report[c]["recall"]),
-                     "f1": float(report[c]["f1-score"]), "support": int(report[c]["support"])} for c in classes}
-    confusion = confusion_matrix(y_test, pred, labels=classes).astype(int).tolist()
+
+    #every part-a classifier with the settings the notebook used or its grid searches picked
+    specs = [
+        ("SVC", SVC(kernel="rbf", C=10, gamma="scale", probability=True, random_state=RANDOM_STATE), "RBF kernel, C 10"),
+        ("Decision Tree (tuned)", DecisionTreeClassifier(criterion="gini", max_depth=8, min_samples_leaf=1, min_samples_split=2,
+                                                         random_state=RANDOM_STATE), "gini, max depth 8"),
+        ("Logistic Regression", LogisticRegression(max_iter=2000, random_state=RANDOM_STATE), "L2 penalty, 2000 iterations"),
+        ("Decision Tree (baseline)", DecisionTreeClassifier(random_state=RANDOM_STATE), "unlimited depth"),
+        ("KNN (tuned)", KNeighborsClassifier(n_neighbors=5, metric="manhattan"), "k 5, manhattan"),
+        ("KNN (baseline)", KNeighborsClassifier(n_neighbors=5, metric="minkowski"), "k 5, minkowski"),
+        ("Gaussian Naive Bayes", GaussianNB(), "default settings"),
+    ]
+    models = {}
+    for name, est, params in specs:
+        pipe = Pipeline(steps=[("preprocess", clone(preprocessor)), ("model", est)]).fit(X_train, y_train)
+        pred = pipe.predict(X_test)
+        proba = pipe.predict_proba(X_test)
+        metrics = {"Accuracy": float(accuracy_score(y_test, pred)),
+                   "F1_Weighted": float(f1_score(y_test, pred, average="weighted")),
+                   "ROC_AUC_OvR": float(roc_auc_score(y_bin, proba, multi_class="ovr", average="weighted"))}
+        report = classification_report(y_test, pred, labels=classes, output_dict=True, zero_division=0)
+        models[name] = {
+            "pipeline": pipe, "metrics": metrics, "params": params,
+            "per_class": {c: {"precision": float(report[c]["precision"]), "recall": float(report[c]["recall"]),
+                              "f1": float(report[c]["f1-score"]), "support": int(report[c]["support"])} for c in classes},
+            "confusion": confusion_matrix(y_test, pred, labels=classes).astype(int).tolist(),
+        }
+        flag = "" if abs(metrics["F1_Weighted"] - NOTEBOOK_CLASSIFICATION[name]) < 0.0005 else "   <-- differs from the notebook"
+        print(f"  {name:26s} acc={metrics['Accuracy']:.4f}  f1={metrics['F1_Weighted']:.4f}  auc={metrics['ROC_AUC_OvR']:.4f}{flag}")
+    order = sorted(models, key=lambda n: -models[n]["metrics"]["F1_Weighted"])
 
     #typical values per class and the percentile grid of each key feature, for the app's radar chart
     key_features = [f for f in CLS_KEY_FEATURES if f in features]
@@ -181,14 +255,13 @@ def export_classification():
     scatter_sample = scatter_sample.sample(n=min(2500, len(scatter_sample)), random_state=RANDOM_STATE).reset_index(drop=True)
 
     bundle = {
-        "pipeline": pipe,
+        "models": models,
+        "model_order": order,
+        "best": order[0],
         "feature_columns": features,
         "key_features": key_features,
         "classes": classes,
         "feature_medians": {f: float(X_train[f].median()) for f in features},
-        "metrics": metrics,
-        "per_class": per_class,
-        "confusion": confusion,
         "class_medians": class_medians,
         "feature_quantiles": feature_quantiles,
         "scatter_sample": scatter_sample,
@@ -197,14 +270,14 @@ def export_classification():
         "n_train": int(len(X_train)),
         "n_test": int(len(X_test)),
     }
-    joblib.dump(bundle, MODELS / "classification_svc.pkl")
-    return metrics
+    joblib.dump(bundle, MODELS / "classification_models.pkl", compress=3)
+    return {n: models[n]["metrics"]["F1_Weighted"] for n in order}
 
 
 if __name__ == "__main__":
-    reg = export_regression()
-    print("regression  (tuned Random Forest):", {k: round(v, 4) for k, v in reg.items()})
-    cls = export_classification()
-    print("classification (tuned SVC):       ", {k: round(v, 4) for k, v in cls.items()})
+    print("regression (test R2, ranked):")
+    export_regression()
+    print("classification (test weighted F1, ranked):")
+    export_classification()
     for p in sorted(MODELS.glob("*.pkl")):
         print(f"saved {p.relative_to(ROOT)}  ({p.stat().st_size / 1e6:.1f} MB)")

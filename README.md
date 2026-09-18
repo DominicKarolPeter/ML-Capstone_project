@@ -119,31 +119,37 @@ jupyter notebook
 
 ## Interactive app (Streamlit)
 
-A web interface serves the two best models: the tuned SVC for Kepler object
-classification and the tuned Random Forest for next-year stock returns.
+A web interface serves every Review 1 model: all ten regressors for next-year
+stock returns and all seven classifier runs for Kepler objects. Each page has a
+model selector (the best model on the held-out split is chosen by default) and
+an "All models" view that scores the same inputs with every model at once.
 
 ```bash
 python app/export_models.py   # rebuilds models/ using the notebooks' exact preprocessing
 streamlit run app/app.py
 ```
 
-`app/export_models.py` needs both datasets in `data/`. It saves the fitted
-models together with everything the app draws from: training medians and
-percentiles, per-class typical values, the held-out confusion matrix and
-per-class scores, test-set predictions, sector statistics and a sample of
-training objects. The app loads these from `models/`, so it runs without the
-raw datasets. The two files total about 5 MB; commit them if you deploy the app.
+`app/export_models.py` needs both datasets in `data/`. It refits every model
+with the hyperparameters the notebooks' grid searches picked, checks that each
+one reproduces the notebook's held-out score, and saves them together with
+everything the app draws from: training medians and percentiles, per-class
+typical values, each model's confusion matrix, per-class scores and test-set
+predictions, sector statistics and a sample of training objects. The app loads
+these from `models/`, so it runs without the raw datasets. The two bundles
+total about 15 MB and are committed so the deployed app can load them.
 
 Pages:
 
-- **Exoplanet classifier** (space-themed banner): enter a transit signal and host-star
-  measurements, get the predicted disposition with class probabilities, then see the
-  object among 2,500 known Kepler objects, a radar comparison with typical objects of
-  each class, and the model's confusion matrix and per-class scores.
-- **Stock return predictor**: enter a company's fundamentals and sector, get the
-  predicted next-year change on a dial, then see where it lands among the training
-  companies, how much each input moves the prediction (one-at-a-time sensitivity),
-  typical returns by sector, and actual-vs-predicted on the held-out set.
+- **Exoplanet classifier** (space-themed banner): pick a classifier, enter a transit
+  signal and host-star measurements, get the predicted disposition with class
+  probabilities, then see the object among 2,500 known Kepler objects, a radar
+  comparison with typical objects of each class, what every classifier says about
+  the same object, and the selected model's confusion matrix and per-class scores.
+- **Stock return predictor**: pick a regressor, enter a company's fundamentals and
+  sector, get the predicted next-year change on a dial, then see where it lands
+  among the training companies, how much each input moves the prediction
+  (one-at-a-time sensitivity), what every regressor predicts, typical returns by
+  sector, and the selected model's actual-vs-predicted on the held-out set.
 - **About the models**: datasets, preprocessing, the full comparison charts and tables
   for both tracks, and run instructions.
 
@@ -154,7 +160,7 @@ back to the system font and still works.
 
 ### Deployment (Streamlit Community Cloud)
 
-The two model files in `models/` are committed (they are the only `.pkl`
+The two model bundles in `models/` are committed (they are the only `.pkl`
 files not ignored), so the app deploys straight from this repository without
 the raw datasets. On [share.streamlit.io](https://share.streamlit.io) choose
 this repository, branch `main`, main file `app/app.py`, and Python 3.13 under
