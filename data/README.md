@@ -36,3 +36,23 @@ https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+cumulativ
 
 Expected shape: about 9,564 rows x 153 columns (NASA updates the live table
 over time, so the exact count can drift).
+
+## Clustering: NASA TESS Objects of Interest (TOI)
+
+Official page: https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=TOI
+
+The clustering notebook downloads the TOI table automatically from the Exoplanet
+Archive when internet access is available, and saves it to:
+
+```text
+data/tess_toi.csv
+```
+
+Programmatic source used by the notebook:
+
+```text
+https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+toi&format=csv
+```
+
+Expected shape: about 8,148 rows x 91 columns (downloaded 14 Oct 2026; NASA
+updates the live table, so the count drifts upward).

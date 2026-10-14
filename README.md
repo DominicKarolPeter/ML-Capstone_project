@@ -5,14 +5,14 @@ Course: 23CSE301 Machine Learning (B.Tech. CSE, III year), Academic Year 2026-27
 End-to-end machine learning pipelines for the three capstone tracks: data loading,
 EDA, cleaning and feature engineering, model training and comparison,
 hyperparameter tuning and result visualisation. Review 1 (full regression track
-plus classification Part A) is complete; classification Part B and the clustering
-track are scheduled for Review 2.
+plus classification Part A) is complete. For Review 2 the clustering track is under
+way (K-Means half done) and classification Part B is pending.
 
 | Track | Dataset | Status |
 |---|---|---|
 | Regression | 200+ Financial Indicators of US Stocks (2018 slice) | Complete: all 10 algorithms, final comparison, top-2 cross-validation |
 | Classification | NASA Kepler Objects of Interest (KOI) | Part A complete: all 5 algorithms; Part B in Review 2 |
-| Clustering | Assigned for Review 2 | Not started |
+| Clustering | NASA TESS Objects of Interest (TOI) | In progress: K-Means, metrics table and PCA plots done; Agglomerative, dendrogram and t-SNE pending |
 
 ## Repository structure
 
@@ -101,6 +101,36 @@ one-vs-rest ROC-AUC.
 
 Part B (Random Forest, AdaBoost, Gradient Boosting, Bagging and MLP classifiers)
 and the consolidated 10-algorithm table are Review 2 deliverables.
+
+## Clustering track
+
+**Problem statement.** Group TESS Objects of Interest (transit-like signals found
+by the TESS space telescope) into natural clusters using only their physical
+measurements, with no labels during fitting. The TFOPWG disposition (planet
+candidate, confirmed or known planet, false positive, false alarm) is used only
+afterwards to read what each cluster contains.
+
+**Dataset.** [NASA TESS Objects of Interest (TOI)](https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=TOI)
+from the Exoplanet Archive: 8,148 TOIs and 91 columns at download (14 Oct 2026;
+the live table grows over time). The notebook downloads it automatically to
+`data/tess_toi.csv` (not committed) from the archive's direct CSV link:
+<https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+toi&format=csv>
+
+**Pipeline.** Eleven physical measurements (orbital period, transit duration and
+depth, planet radius, insolation, equilibrium temperature, TESS magnitude, star
+distance, temperature, surface gravity and radius). The seven heavy-tailed ones
+are log10-transformed, every feature is clipped at the 1st/99th percentile,
+missing values take the column median, and everything is standardised. No
+train/test split: clustering has no target to hold out.
+
+**Results so far.** K-Means with k = 2, chosen because silhouette (0.275) and
+Calinski-Harabasz (2,967) both peak there, Davies-Bouldin (1.50) is nearly flat
+across k, and the elbow has no sharp bend. The two clusters are small planets around nearby, cool,
+compact stars (34% of TOIs, 28.6% of them confirmed or known planets) and
+Jupiter-sized signals around distant, hotter, larger stars (66%, 20.4% false
+positives, where 80% of all false positives land). Pending: Agglomerative
+Hierarchical clustering with the dendrogram and linkage comparison, the t-SNE
+plot, and the two-algorithm comparison.
 
 ## Setup
 
