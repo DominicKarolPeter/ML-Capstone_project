@@ -6,7 +6,7 @@ Run from the repo root:
     python app/export_models.py
 
 Needs data/2018_Financial_Data.csv and data/kepler_koi.csv (see data/README.md).
-Writes models/regression_models.pkl and models/classification_models.pkl.
+Writes models/regression_models.pkl, models/classification_models.pkl and models/clustering_kmeans.pkl.
 """
 from pathlib import Path
 
@@ -14,12 +14,15 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.cluster import KMeans
 from sklearn.compose import ColumnTransformer
+from sklearn.decomposition import PCA
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
-from sklearn.metrics import (accuracy_score, classification_report, confusion_matrix, f1_score,
-                             mean_absolute_error, mean_squared_error, r2_score, roc_auc_score)
+from sklearn.metrics import (accuracy_score, calinski_harabasz_score, classification_report, confusion_matrix,
+                             davies_bouldin_score, f1_score, mean_absolute_error, mean_squared_error, r2_score,
+                             roc_auc_score, silhouette_score)
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
@@ -274,10 +277,85 @@ def export_classification():
     return {n: models[n]["metrics"]["F1_Weighted"] for n in order}
 
 
+#the clustering notebook's feature set and the k = 2 scores it reports
+CLU_FEATURES = {
+    'pl_orbper': 'Orbital period (days)', 'pl_trandurh': 'Transit duration (hours)', 'pl_trandep': 'Transit depth (ppm)',
+    'pl_rade': 'Planet radius (Earth radii)', 'pl_insol': 'Insolation flux (Earth = 1)', 'pl_eqt': 'Equilibrium temperature (K)',
+    'st_tmag': 'TESS magnitude', 'st_dist': 'Star distance (pc)', 'st_teff': 'Star temperature (K)',
+    'st_logg': 'Star surface gravity (log g)', 'st_rad': 'Star radius (Solar radii)',
+}
+CLU_LOG_FEATURES = ['pl_orbper', 'pl_trandurh', 'pl_trandep', 'pl_rade', 'pl_insol', 'st_dist', 'st_rad']
+NOTEBOOK_CLUSTERING = {"Silhouette": 0.2752, "Davies-Bouldin": 1.5022, "Calinski-Harabasz": 2967.3}
+TOI_URL = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+toi&format=csv"
+
+
+def export_clustering():
+    path = DATA / "tess_toi.csv"
+    if not path.exists():
+        import urllib.request
+        urllib.request.urlretrieve(TOI_URL, path)
+    df = pd.read_csv(path, low_memory=False)
+    features = list(CLU_FEATURES)
+
+    #same preprocessing as clustering.ipynb section b: log10, clip 1/99, median impute, standardise
+    X_raw = df[features].copy()
+    X_prep = X_raw.copy()
+    for col in CLU_LOG_FEATURES:
+        X_prep[col] = np.log10(X_prep[col].where(X_prep[col] > 0))
+    clip_bounds = {}
+    for col in features:
+        lo, hi = X_prep[col].quantile([0.01, 0.99])
+        X_prep[col] = X_prep[col].clip(lo, hi)
+        clip_bounds[col] = (float(lo), float(hi))
+    imputer = SimpleImputer(strategy="median").fit(X_prep)
+    X_imputed = pd.DataFrame(imputer.transform(X_prep), columns=features, index=X_prep.index)
+    scaler = StandardScaler().fit(X_imputed)
+    X = pd.DataFrame(scaler.transform(X_imputed), columns=features, index=X_prep.index)
+
+    #k-means for every k in the notebook's sweep, so the app can show any of them
+    kmeans, sweep = {}, []
+    for k in range(2, 11):
+        km = KMeans(n_clusters=k, n_init=10, random_state=RANDOM_STATE).fit(X)
+        kmeans[k] = km
+        sweep.append({"k": k, "inertia": float(km.inertia_), "silhouette": float(silhouette_score(X, km.labels_)),
+                      "davies_bouldin": float(davies_bouldin_score(X, km.labels_)),
+                      "calinski_harabasz": float(calinski_harabasz_score(X, km.labels_))})
+    sweep = pd.DataFrame(sweep)
+    best = sweep.loc[sweep["k"] == 2].iloc[0]
+    reported = {"Silhouette": best["silhouette"], "Davies-Bouldin": best["davies_bouldin"], "Calinski-Harabasz": best["calinski_harabasz"]}
+    for name, val in reported.items():
+        flag = "" if abs(val - NOTEBOOK_CLUSTERING[name]) < 0.001 * max(1, NOTEBOOK_CLUSTERING[name]) else "   <-- differs from the notebook"
+        print(f"  K-Means k=2 {name:18s} {val:.4f}{flag}")
+
+    pca = PCA(n_components=2, random_state=RANDOM_STATE).fit(X)
+    group_map = {"CP": "planet", "KP": "planet", "PC": "candidate", "APC": "candidate", "FP": "not a planet", "FA": "not a planet"}
+    #cluster 0 at k = 2 is the small-planet group in the notebook; name the clusters by their planet-radius centroid so the order cannot flip
+    centers2 = kmeans[2].cluster_centers_[:, features.index("pl_rade")]
+    small = int(np.argmin(centers2))
+    names2 = {small: "Small planets around nearby, compact stars", 1 - small: "Jupiter-sized signals around distant, larger stars"}
+
+    bundle = {
+        "features": features, "feature_labels": CLU_FEATURES, "log_features": CLU_LOG_FEATURES,
+        "clip_bounds": clip_bounds, "imputer": imputer, "scaler": scaler,
+        "X_scaled": X.to_numpy(dtype=np.float32), "X_raw": X_raw.to_numpy(dtype=np.float32),
+        "X_pca": pca.transform(X).astype(np.float32), "pca": pca,
+        "explained_variance": [float(v) for v in pca.explained_variance_ratio_],
+        "toi": df["toi"].astype(str).tolist(), "disposition": df["tfopwg_disp"].fillna("missing").tolist(),
+        "disp_group": df["tfopwg_disp"].map(group_map).fillna("unknown").tolist(),
+        "kmeans": kmeans, "sweep": sweep, "best_k": 2, "cluster_names": {2: names2},
+        "feature_medians": {f: float(X_raw[f].median()) for f in features},
+        "n_rows": int(len(df)), "downloaded": "14 Oct 2026",
+    }
+    joblib.dump(bundle, MODELS / "clustering_kmeans.pkl", compress=3)
+    return reported
+
+
 if __name__ == "__main__":
     print("regression (test R2, ranked):")
     export_regression()
     print("classification (test weighted F1, ranked):")
     export_classification()
+    print("clustering (K-Means, reported model k = 2):")
+    export_clustering()
     for p in sorted(MODELS.glob("*.pkl")):
         print(f"saved {p.relative_to(ROOT)}  ({p.stat().st_size / 1e6:.1f} MB)")

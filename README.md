@@ -149,10 +149,12 @@ jupyter notebook
 
 ## Interactive app (Streamlit)
 
-A web interface serves every Review 1 model: all ten regressors for next-year
-stock returns and all seven classifier runs for Kepler objects. Each page has a
-model selector (the best model on the held-out split is chosen by default) and
-an "All models" view that scores the same inputs with every model at once.
+A web interface serves every Review 1 model, all ten regressors for next-year
+stock returns and all seven classifier runs for Kepler objects, plus the
+K-Means clustering of TESS objects. The supervised pages have a model selector
+(the best model on the held-out split is chosen by default) and an "All models"
+view that scores the same inputs with every model at once; the clustering page
+has a k selector covering the notebook's whole sweep.
 
 ```bash
 python app/export_models.py   # rebuilds models/ using the notebooks' exact preprocessing
@@ -165,8 +167,8 @@ one reproduces the notebook's held-out score, and saves them together with
 everything the app draws from: training medians and percentiles, per-class
 typical values, each model's confusion matrix, per-class scores and test-set
 predictions, sector statistics and a sample of training objects. The app loads
-these from `models/`, so it runs without the raw datasets. The two bundles
-total about 15 MB and are committed so the deployed app can load them.
+these from `models/`, so it runs without the raw datasets. The three bundles
+total about 16 MB and are committed so the deployed app can load them.
 
 Pages:
 
@@ -180,8 +182,13 @@ Pages:
   among the training companies, how much each input moves the prediction
   (one-at-a-time sensitivity), what every regressor predicts, typical returns by
   sector, and the selected model's actual-vs-predicted on the held-out set.
+- **TESS cluster explorer** (sky-survey banner): pick k from 2 to 10, enter a
+  signal's eleven measurements, see which K-Means cluster it joins and how central
+  it is, then the object among all 8,148 TESS objects in PCA space, the elbow and
+  metric curves used to choose k, the cluster profiles, and what each cluster
+  contains once the dispositions are read in afterwards.
 - **About the models**: datasets, preprocessing, the full comparison charts and tables
-  for both tracks, and run instructions.
+  for all tracks, and run instructions.
 
 The sidebar has a dark/light toggle. It switches Streamlit's theme at runtime
 for the whole app (the setting is process-wide, so every open tab follows the
@@ -190,7 +197,7 @@ back to the system font and still works.
 
 ### Deployment (Streamlit Community Cloud)
 
-The two model bundles in `models/` are committed (they are the only `.pkl`
+The three model bundles in `models/` are committed (they are the only `.pkl`
 files not ignored), so the app deploys straight from this repository without
 the raw datasets. On [share.streamlit.io](https://share.streamlit.io) choose
 this repository, branch `main`, main file `app/app.py`, and Python 3.13 under

@@ -36,11 +36,11 @@ PALETTE = {
     "dark": dict(bg="#0b1020", surface="#121a33", surface2="#182244", border="rgba(255,255,255,.10)",
                  text="#eef1f7", muted="#a3adc5", faint="#6f7a96", grid="rgba(255,255,255,.08)",
                  chip="rgba(255,255,255,.06)", amber="#f5b94e", teal="#5eead4", red="#f87171",
-                 green="#34d399", blue="#60a5fa", violet="#a78bfa", up="#4ade80", down="#f87171"),
+                 green="#34d399", blue="#60a5fa", violet="#a78bfa", pink="#f472b6", cyan="#22d3ee", up="#4ade80", down="#f87171"),
     "light": dict(bg="#f4f5f9", surface="#ffffff", surface2="#eef1f8", border="#e1e5ef",
                   text="#1b2233", muted="#5b6478", faint="#8a93a8", grid="rgba(27,34,51,.09)",
                   chip="#eef1f8", amber="#d18f12", teal="#0e9a86", red="#dc4444",
-                  green="#15994f", blue="#2c5bd9", violet="#7c5cd6", up="#15994f", down="#dc4444"),
+                  green="#15994f", blue="#2c5bd9", violet="#7c5cd6", pink="#db2777", cyan="#0e7490", up="#15994f", down="#dc4444"),
 }
 #the theme options are process-wide, so a fresh session starts from whatever is currently applied
 CURRENT = "dark" if stconfig.get_option("theme.base") == "dark" else "light"
@@ -90,25 +90,26 @@ section[data-testid="stSidebar"] .block-container {{ padding-top: 1rem; }}
 .hero {{ position: relative; overflow: hidden; border-radius: 18px; padding: 1.6rem 1.8rem 1.5rem; margin-bottom: 1.1rem;
         border: 1px solid var(--border); min-height: 208px; background: var(--surface); }}
 .hero.space {{ background: #080d21; border-color: rgba(255,255,255,.10); }}
+.hero.survey {{ background: #090d26; border-color: rgba(34,211,238,.18); }}
 .hero svg.sky {{ position: absolute; inset: 0; width: 100%; height: 100%; display: block; }}
 .hero-body {{ position: relative; z-index: 1; max-width: 660px; }}
-.hero.space .hero-body {{ color: #f3f5fa; }}
+.hero.space .hero-body, .hero.survey .hero-body {{ color: #f3f5fa; }}
 .eyebrow {{ font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; font-weight: 600; color: var(--muted); }}
-.hero.space .eyebrow {{ color: #9fb0e0; }}
+.hero.space .eyebrow, .hero.survey .eyebrow {{ color: #9fb0e0; }}
 .hero-title {{ display: flex; align-items: center; gap: .65rem; font-size: 2rem; font-weight: 700; letter-spacing: -.01em;
               line-height: 1.15; margin: .35rem 0 .45rem; color: var(--text); }}
-.hero.space .hero-title {{ color: #f8fafc; }}
+.hero.space .hero-title, .hero.survey .hero-title {{ color: #f8fafc; }}
 .hero-title svg {{ width: 34px; height: 34px; flex: 0 0 auto; }}
 .hero-sub {{ font-size: .98rem; line-height: 1.55; color: var(--muted); max-width: 600px; }}
-.hero.space .hero-sub {{ color: #c3cce6; }}
+.hero.space .hero-sub, .hero.survey .hero-sub {{ color: #c3cce6; }}
 .chips {{ display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }}
 .chip {{ display: inline-flex; gap: .4rem; align-items: baseline; padding: .38rem .8rem; border-radius: 999px; font-size: .82rem;
         background: var(--chip); border: 1px solid var(--border); color: var(--muted); animation: pop .55s cubic-bezier(.2,.8,.2,1) both;
         animation-delay: calc(.25s + var(--i) * 90ms); }}
 .chip b {{ font-family: {MONO}; font-weight: 600; color: var(--text); font-size: .9rem; }}
 .model-chips {{ margin: 1.9rem 0 0; }}
-.hero.space .chip {{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #c3cce6; }}
-.hero.space .chip b {{ color: #fff; }}
+.hero.space .chip, .hero.survey .chip {{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #c3cce6; }}
+.hero.space .chip b, .hero.survey .chip b {{ color: #fff; }}
 
 .section {{ font-size: 1rem; font-weight: 600; color: var(--text); margin: .2rem 0 .35rem; }}
 .hint {{ color: var(--muted); font-size: .88rem; line-height: 1.55; margin-bottom: .6rem; }}
@@ -182,7 +183,8 @@ REG_COLUMNS = {"R2": "R2", "RMSE": "RMSE", "MAE": "MAE"}
 @st.cache_resource(show_spinner=False)
 def load_bundles():
     return (joblib.load(MODELS / "classification_models.pkl"),
-            joblib.load(MODELS / "regression_models.pkl"))
+            joblib.load(MODELS / "regression_models.pkl"),
+            joblib.load(MODELS / "clustering_kmeans.pkl"))
 
 
 def results_table(bundle, columns):
@@ -202,6 +204,41 @@ ICON_CHART = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 ICON_ORBIT = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
               '<circle cx="12" cy="12" r="3.2" fill="currentColor"/><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(-30 12 12)"/>'
               '<circle cx="4.6" cy="16.2" r="1.3" fill="currentColor" stroke="none"/></svg>')
+
+
+ICON_SURVEY = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
+               '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10q9-3 18 0M3 15q9-3 18 0M9 4q-1.5 8 0 16M15 4q1.5 8 0 16" stroke-opacity=".55"/>'
+               '<circle cx="8" cy="8.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.5" cy="12.5" r="1.4" fill="currentColor" stroke="none"/>'
+               '<circle cx="17" cy="8" r="1" fill="currentColor" stroke="none"/></svg>')
+
+
+def survey_svg(seed=11):
+    #a sky-chart banner for the TESS page: curved celestial grid, two coloured swarms of objects, a camera strip scanning past
+    rng = random.Random(seed)
+    meridians = "".join(f'<path d="M{x} 0 Q{x + 34} 150 {x} 300" fill="none" stroke="#22d3ee" stroke-opacity=".17" stroke-width="1"/>'
+                        for x in range(90, 1200, 105))
+    parallels = "".join(f'<path d="M0 {y} Q600 {y - 26} 1200 {y}" fill="none" stroke="#22d3ee" stroke-opacity=".17" stroke-width="1"/>'
+                        for y in range(42, 300, 52))
+    pts = []
+    for cx, cy, sx, sy, col, n in [(470, 170, 150, 62, "#a78bfa", 120), (820, 125, 185, 72, "#f472b6", 160)]:
+        for _ in range(n):
+            x, y = rng.gauss(cx, sx), rng.gauss(cy, sy)
+            if 0 < x < 1200 and 0 < y < 300:
+                pts.append(f'<circle class="p" cx="{x:.0f}" cy="{y:.0f}" r="{rng.choice([1.2, 1.5, 1.9, 2.3])}" fill="{col}" '
+                           f'opacity="{rng.uniform(.35, .9):.2f}" style="animation-delay:{rng.uniform(0, 2.2):.2f}s"/>')
+    strip = ('<g class="strip"><g transform="rotate(-14 1010 150)">'
+             + "".join(f'<rect x="968" y="{y}" width="84" height="84" fill="#22d3ee" fill-opacity=".05" stroke="#22d3ee" '
+                       f'stroke-opacity=".75" stroke-width="1.4" stroke-dasharray="7 5"/>' for y in (-118, -26, 66, 158))
+             + '</g></g>')
+    style = ('<style>.p{animation:pin 1s ease both;transform-box:fill-box;transform-origin:center}'
+             '@keyframes pin{from{opacity:0;transform:scale(.2)}}'
+             '.strip{animation:scan 26s ease-in-out infinite alternate}'
+             '@keyframes scan{from{transform:translateX(90px)}to{transform:translateX(-330px)}}</style>')
+    return (f'<svg class="sky" viewBox="0 0 1200 300" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">{style}'
+            f'<defs><linearGradient id="sshade" x1="0" x2="1"><stop offset="0" stop-color="#090d26" stop-opacity=".94"/>'
+            f'<stop offset="1" stop-color="#090d26" stop-opacity="0"/></linearGradient></defs>'
+            f'<rect width="1200" height="300" fill="#090d26"/>{meridians}{parallels}{"".join(pts)}{strip}'
+            f'<rect width="720" height="300" fill="url(#sshade)"/></svg>')
 
 
 def starfield_svg(seed=7, n=175):
@@ -271,7 +308,7 @@ def market_svg(seed=3):
 
 #---------- small ui helpers ----------
 def hero(kind, eyebrow, title, icon, subtitle, chips):
-    sky = starfield_svg() if kind == "space" else (market_svg() if kind == "finance" else "")
+    sky = {"space": starfield_svg, "finance": market_svg, "survey": survey_svg}.get(kind, lambda: "")()
     chip_html = "".join(f'<span class="chip" style="--i:{i}"><b>{v}</b>{k}</span>' for i, (v, k) in enumerate(chips))
     st.markdown(f'<div class="hero {kind}">{sky}<div class="hero-body"><div class="eyebrow">{eyebrow}</div>'
                 f'<div class="hero-title">{icon}<span>{title}</span></div><div class="hero-sub">{subtitle}</div>'
@@ -765,9 +802,195 @@ def sector_counts_chart(reg):
     return themed(fig, 28 * len(order) + 100, "Companies per sector (2018 data)", legend=False)
 
 
+#---------- clustering helpers ----------
+def cluster_palette(k):
+    base = [T["violet"], T["pink"], T["cyan"], T["amber"], T["green"], T["blue"], T["red"], T["teal"], "#fb923c", "#a3e635"]
+    return base[:k]
+
+
+def clu_vector(clu, values):
+    #same steps as the notebook's section b: log10 the heavy-tailed features, clip, fill with the median, standardise
+    row = {}
+    for f in clu["features"]:
+        v = float(values[f])
+        if f in clu["log_features"]:
+            v = np.log10(v) if v > 0 else np.nan
+        lo, hi = clu["clip_bounds"][f]
+        row[f] = float(np.clip(v, lo, hi)) if not np.isnan(v) else np.nan
+    frame = pd.DataFrame([row], columns=clu["features"])
+    frame = pd.DataFrame(clu["imputer"].transform(frame), columns=clu["features"])
+    return clu["scaler"].transform(frame)[0]
+
+
+def clu_assign(clu, k, vec):
+    #nearest centroid, inverse-square-distance weights for the other centres, and how central the object is inside its cluster
+    km = clu["kmeans"][k]
+    d = np.linalg.norm(km.cluster_centers_ - vec, axis=1)
+    c = int(d.argmin())
+    w = 1 / np.maximum(d, 1e-9) ** 2
+    w = w / w.sum()
+    members = clu["X_scaled"][km.labels_ == c]
+    member_d = np.linalg.norm(members - km.cluster_centers_[c], axis=1)
+    closer_than = float((member_d > d[c]).mean() * 100)
+    return c, d, w, closer_than
+
+
+def clu_profile(clu, k):
+    labels = clu["kmeans"][k].labels_
+    z = pd.DataFrame(clu["X_scaled"], columns=clu["features"]).groupby(labels).mean().T
+    med = pd.DataFrame(clu["X_raw"], columns=clu["features"]).groupby(labels).median().T
+    return z, med
+
+
+def clu_describe(clu, k, c, z):
+    #hand-written names for the reported model, the three biggest deviations otherwise
+    names = clu["cluster_names"].get(k, {})
+    if c in names:
+        return names[c]
+    top = z[c].sort_values(key=np.abs, ascending=False).head(3)
+    def short(f):
+        name = clu["feature_labels"][f].split(" (")[0]
+        return name if name.startswith("TESS") else name.lower()
+    return ", ".join(f"{'high' if v > 0 else 'low'} {short(f)}" for f, v in top.items())
+
+
+def clu_mix(clu, k):
+    labels = pd.Series(clu["kmeans"][k].labels_, name="cluster")
+    mix = pd.crosstab(labels, pd.Series(clu["disp_group"], name="group"), normalize="index") * 100
+    return mix.reindex(columns=[g for g in ["planet", "candidate", "not a planet", "unknown"] if g in mix.columns], fill_value=0)
+
+
+def cluster_card(clu, k, c, w, closer_than, desc, mix_row):
+    pal = cluster_palette(k)
+    color = pal[c]
+    circ = 2 * np.pi * 46
+    rows = "".join(
+        f'<div class="row"><span class="nm">cluster {i}</span><div class="track"><div class="fill" data-w="{w[i] * 100:.1f}" style="background:{pal[i]}"></div></div>'
+        f'<span class="val mono" data-count="{w[i] * 100:.1f}" data-suffix="%">0.0%</span></div>' for i in np.argsort(-w)[:5])
+    chips = "".join(f'<span class="mix"><b class="mono" style="color:{col}">{mix_row.get(g, 0):.0f}%</b> {g}</span>'
+                    for g, col in [("planet", T["teal"]), ("candidate", T["amber"]), ("not a planet", T["red"])])
+    css = f"""
+.wrap{{display:flex;gap:clamp(14px,4vw,28px);align-items:center;padding:6px 2px}}
+.ring{{position:relative;width:clamp(124px,30vw,160px);height:clamp(124px,30vw,160px);flex:0 0 auto}}
+.ring svg{{width:100%;height:100%}}
+.seg{{fill:none;stroke-width:13;transform:rotate(-90deg);transform-origin:60px 60px;transition:stroke-dashoffset 1.3s cubic-bezier(.2,.8,.2,1)}}
+.base{{fill:none;stroke:{T['chip']};stroke-width:13}}
+.center{{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}}
+.pct{{font-size:clamp(22px,6vw,28px);font-weight:600;line-height:1}}
+.lbl{{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:{T['muted']};margin-top:5px;max-width:110px;line-height:1.3}}
+.info{{flex:1 1 auto;min-width:0}}
+.badge{{display:inline-block;padding:7px 15px;border-radius:999px;font-weight:600;font-size:15px;letter-spacing:.02em;
+  background:{color}22;color:{color};border:1px solid {color}66;animation:pop .7s cubic-bezier(.2,.8,.2,1) both}}
+@keyframes pop{{from{{opacity:0;transform:scale(.9)}}to{{opacity:1;transform:none}}}}
+.desc{{color:{T['text']};font-size:13.5px;line-height:1.5;margin:10px 0 8px}}
+.row{{display:grid;grid-template-columns:minmax(70px,90px) 1fr 52px;align-items:center;gap:10px;margin:6px 0;font-size:12.5px}}
+.nm{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{T['muted']}}}
+.track{{height:8px;background:{T['chip']};border:1px solid {T['border']};border-radius:99px;overflow:hidden}}
+.fill{{height:100%;width:0;border-radius:99px;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}}
+.val{{text-align:right;color:{T['muted']};font-size:12px}}
+.mixrow{{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:12.5px;color:{T['muted']}}}
+.mix b{{font-weight:600}}
+.small{{font-size:11.5px;color:{T['muted']};margin-top:4px}}
+"""
+    body = f"""
+<div class="wrap">
+  <div class="ring"><svg viewBox="0 0 120 120"><circle class="base" cx="60" cy="60" r="46"/>
+    <circle class="seg" cx="60" cy="60" r="46" stroke="{color}" data-off="{circ * (1 - closer_than / 100):.2f}" style="stroke-dasharray:{circ:.2f};stroke-dashoffset:{circ:.2f}"/></svg>
+    <div class="center"><div class="pct mono" data-count="{closer_than:.0f}" data-suffix="%" data-dec="0">0%</div><div class="lbl">of the cluster sits farther from the centre</div></div></div>
+  <div class="info"><span class="badge">Cluster {c} of {k}</span>
+    <div class="desc">{desc[0].upper() + desc[1:]}.</div>
+    <div class="small">Nearest centre by distance in standardised feature space; the bars share out the closeness to every centre.</div>{rows}
+    <div class="mixrow">{chips}</div><div class="small">What this cluster contains, read from the dispositions after fitting.</div></div>
+</div>
+<script>
+requestAnimationFrame(()=>setTimeout(()=>{{
+  document.querySelectorAll('.seg').forEach(e=>e.style.strokeDashoffset=e.dataset.off);
+  document.querySelectorAll('.fill').forEach(e=>e.style.width=e.dataset.w+'%');
+  document.querySelectorAll('[data-count]').forEach(e=>{{const t=parseFloat(e.dataset.count),d=e.dataset.dec!==undefined?+e.dataset.dec:1,s=e.dataset.suffix||'',t0=performance.now();
+    const step=n=>{{const k=Math.min((n-t0)/1200,1),v=t*(1-Math.pow(1-k,3));e.textContent=v.toFixed(d)+s;if(k<1)requestAnimationFrame(step)}};requestAnimationFrame(step)}});
+}},60));
+</script>"""
+    st.iframe(result_card_html(body, css), height=250)
+
+
+def clu_pca_scatter(clu, k, user=None):
+    km, pal, P, ev = clu["kmeans"][k], cluster_palette(k), clu["X_pca"], clu["explained_variance"]
+    toi, disp = np.array(clu["toi"]), np.array(clu["disposition"])
+    fig = go.Figure()
+    for c in range(k):
+        m = km.labels_ == c
+        fig.add_trace(go.Scattergl(x=P[m, 0], y=P[m, 1], mode="markers", name=f"cluster {c} (n={int(m.sum()):,})",
+                                   marker=dict(color=pal[c], size=4, opacity=.45),
+                                   text=[f"TOI {t}<br>{d}" for t, d in zip(toi[m], disp[m])],
+                                   hovertemplate="%{text}<extra>cluster " + str(c) + "</extra>"))
+    cen = clu["pca"].transform(pd.DataFrame(km.cluster_centers_, columns=clu["features"]))
+    fig.add_trace(go.Scatter(x=cen[:, 0], y=cen[:, 1], mode="markers", name="centroids",
+                             marker=dict(symbol="x", size=13, color=T["text"], line=dict(color=T["bg"], width=1.5)),
+                             hovertemplate="centroid of cluster %{pointNumber}<extra></extra>"))
+    if user is not None:
+        u = clu["pca"].transform(pd.DataFrame([user], columns=clu["features"]))[0]
+        fig.add_trace(go.Scatter(x=[u[0]], y=[u[1]], mode="markers", name="your object",
+                                 marker=dict(symbol="star", size=22, color="#ffffff" if MODE == "dark" else "#1b2233",
+                                             line=dict(color=T["amber"], width=2.5)),
+                                 hovertemplate="your object<extra></extra>"))
+    fig.update_xaxes(title=f"PC1 ({ev[0] * 100:.1f}% of variance)")
+    fig.update_yaxes(title=f"PC2 ({ev[1] * 100:.1f}% of variance)")
+    return themed(fig, 440, f"{clu['n_rows']:,} TESS objects in PCA space, coloured by K-Means cluster (k = {k})")
+
+
+def clu_k_chart(clu, k):
+    from plotly.subplots import make_subplots
+    sw = clu["sweep"]
+    panels = [("inertia", "Inertia (elbow curve)", T["violet"]), ("silhouette", "Silhouette, higher is better", T["pink"]),
+              ("davies_bouldin", "Davies-Bouldin, lower is better", T["cyan"]), ("calinski_harabasz", "Calinski-Harabasz, higher is better", T["amber"])]
+    fig = make_subplots(rows=1, cols=4, subplot_titles=[t for _, t, _ in panels], horizontal_spacing=.06)
+    for i, (col, _, color) in enumerate(panels, start=1):
+        fig.add_trace(go.Scatter(x=sw["k"], y=sw[col], mode="lines+markers", line=dict(color=color, width=2.5), marker=dict(size=7),
+                                 showlegend=False, hovertemplate="k = %{x}<br>%{y:.4g}<extra></extra>"), row=1, col=i)
+        sel = float(sw.loc[sw["k"] == k, col].iloc[0])
+        fig.add_trace(go.Scatter(x=[k], y=[sel], mode="markers", marker=dict(size=15, color=color, line=dict(color=T["text"], width=2)),
+                                 showlegend=False, hoverinfo="skip"), row=1, col=i)
+        fig.update_xaxes(title_text="k", tickvals=list(range(2, 11)), row=1, col=i)
+    themed(fig, 330, f"Choosing k: every number of clusters from 2 to 10, with k = {k} highlighted", legend=False)
+    fig.update_xaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"], title_font=dict(size=11, color=T["muted"]))
+    fig.update_yaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"])
+    fig.update_annotations(font=dict(size=11, color=T["text"]))
+    return fig
+
+
+def clu_profile_heatmap(clu, k, z):
+    labels = [clu["feature_labels"][f] for f in z.index]
+    lim = float(np.abs(z.values).max())
+    vals = z.values.astype(float)
+    fig = go.Figure(go.Heatmap(z=vals, x=[f"cluster {c}" for c in z.columns], y=labels, zmin=-lim, zmax=lim,
+                               text=[[f"{v:+.2f}" for v in row] for row in vals], texttemplate="%{text}", textfont=dict(size=11),
+                               colorscale=[[0, T["blue"]], [0.5, T["surface2"]], [1, T["red"]]], xgap=3, ygap=3,
+                               colorbar=dict(title="std units", thickness=12),
+                               hovertemplate="%{y}<br>%{x}: %{z:.2f} standard units from the average<extra></extra>"))
+    fig.update_yaxes(autorange="reversed")
+    return themed(fig, 32 * len(labels) + 110, "How each cluster differs from the average TESS object (standard units)", legend=False)
+
+
+def clu_mix_chart(clu, k):
+    mix = clu_mix(clu, k)
+    colors = {"planet": T["teal"], "candidate": T["amber"], "not a planet": T["red"], "unknown": T["faint"]}
+    fig = go.Figure()
+    for g in mix.columns:
+        fig.add_trace(go.Bar(y=[f"cluster {c}" for c in mix.index], x=mix[g], orientation="h", name=g, marker_color=colors[g], opacity=.9,
+                             text=[f"{v:.0f}%" if v >= 8 else "" for v in mix[g]], textposition="inside", insidetextanchor="middle",
+                             textfont=dict(size=11, color="#0b1020" if MODE == "dark" else "#fff"),
+                             hovertemplate="%{y}<br>" + g + " %{x:.1f}%<extra></extra>"))
+    fig.update_layout(barmode="stack", bargap=.3)
+    fig.update_xaxes(range=[0, 100], ticksuffix="%", title="Share of the cluster")
+    fig.update_yaxes(autorange="reversed")
+    fig = themed(fig, max(34 * k + 210, 290), "What each cluster contains")
+    fig.update_layout(legend=dict(orientation="h", y=-0.42, yanchor="top", x=0), margin=dict(t=46, b=90))
+    return fig
+
+
 #---------- pages ----------
 def page_classifier():
-    cls, reg = load_bundles()
+    cls, reg, clu = load_bundles()
     best, total = cls["models"][cls["best"]]["metrics"], cls["class_counts_all"]
     hero("space", "Classification · NASA Kepler", "Exoplanet classifier", ICON_PLANET,
          "Pick any of the five Review 1 classifiers (the tuned Support Vector Classifier, the best, is selected by "
@@ -857,7 +1080,7 @@ def weights_panel(name, m):
 
 
 def page_regression():
-    cls, reg = load_bundles()
+    cls, reg, clu = load_bundles()
     best, s = reg["models"][reg["best"]]["metrics"], reg["target_stats"]
     hero("finance", "Regression · US stock fundamentals", "Stock return predictor", ICON_CHART,
          "Pick any of the ten Review 1 regressors (the tuned Random Forest, the best, is selected by default), give "
@@ -936,13 +1159,96 @@ def page_regression():
                         "predictions lean the right way more often than not.")
 
 
+def page_clustering():
+    cls, reg, clu = load_bundles()
+    sw = clu["sweep"]
+    best = sw.loc[sw["k"] == clu["best_k"]].iloc[0]
+    hero("survey", "Clustering · NASA TESS objects of interest", "TESS cluster explorer", ICON_SURVEY,
+         "K-Means groups the TESS Objects of Interest by their physical measurements alone, with no labels during fitting. "
+         "Pick a number of clusters, enter a signal's measurements, and see which group it joins, how close to the centre "
+         "it sits, and what that group contains once the NASA dispositions are read back in afterwards.",
+         [(f"{clu['n_rows']:,}", "TESS objects"), (f"{len(clu['features'])}", "measurements"),
+          (f"k = {clu['best_k']}", "reported model"), (f"{best['silhouette']:.3f}", "silhouette")])
+
+    left, right = st.columns([5, 7], gap="large")
+    with left:
+        k = st.selectbox("Number of clusters", list(range(2, 11)), key="clu_k",
+                         format_func=lambda v: f"k = {v}  (reported model)" if v == clu["best_k"] else f"k = {v}",
+                         help="The notebook swept every k from 2 to 10. Silhouette and Calinski-Harabasz both peak at k = 2.")
+    row = sw.loc[sw["k"] == k].iloc[0]
+    with right:
+        st.markdown('<div class="chips model-chips">' + "".join(
+            f'<span class="chip" style="--i:{i}"><b>{v}</b>{n}</span>' for i, (v, n) in enumerate([
+                (f"{row['silhouette']:.3f}", "silhouette"), (f"{row['davies_bouldin']:.2f}", "Davies-Bouldin"),
+                (f"{row['calinski_harabasz']:,.0f}", "Calinski-Harabasz"), (f"{row['inertia']:,.0f}", "inertia")]))
+            + '</div>', unsafe_allow_html=True)
+
+    text("section", "Measurements of a TESS object")
+    text("hint", "Pre-filled with the median object. Change what you know, then place it. Switching k above re-places the same object.")
+    with st.form("clu_form"):
+        values = number_inputs(clu["features"], clu["feature_labels"], clu["feature_medians"], "u", ncols=4)
+        a, b = st.columns([2, 1], gap="medium")
+        with a:
+            text("caption", "All eleven measurements go through the notebook's preprocessing: log scale for the heavy-tailed ones, "
+                            "clipping, median fill and standardisation.")
+        with b:
+            submitted = st.form_submit_button("Place this object", type="primary", width="stretch")
+        if submitted:
+            st.session_state["clu_inputs"] = values
+
+    z, med = clu_profile(clu, k)
+    left, right = st.columns([7, 5], gap="large")
+    if "clu_inputs" not in st.session_state:
+        with left:
+            text("empty", "Press <b>Place this object</b> to see which cluster it joins, how central it is, and where it lands "
+                          "among all TESS objects. The map below already shows the clusters for the chosen k.")
+            show(clu_pca_scatter(clu, k))
+        with right:
+            show(clu_mix_chart(clu, k))
+            text("caption", "Clusters are not dispositions: candidates dominate every cluster. What changes between clusters is "
+                            "the share of confirmed planets and of false positives.")
+        return
+
+    values = st.session_state["clu_inputs"]
+    vec = clu_vector(clu, values)
+    c, d, w, closer = clu_assign(clu, k, vec)
+    mix = clu_mix(clu, k)
+    with left:
+        cluster_card(clu, k, c, w, closer, clu_describe(clu, k, c, z), mix.loc[c])
+    with right:
+        show(clu_mix_chart(clu, k))
+    tab1, tab2, tab3, tab4 = st.tabs(["Where it sits", "Choosing k", "Cluster profiles", "Report card"])
+    with tab1:
+        show(clu_pca_scatter(clu, k, vec))
+        text("caption", "The star is your object, the crosses are the cluster centres. The two principal components keep "
+                        f"{sum(clu['explained_variance']) * 100:.0f}% of the variance of the eleven measurements.")
+    with tab2:
+        show(clu_k_chart(clu, k))
+        text("caption", "Inertia always falls as k grows, so the elbow is read from where the drops get small. Silhouette and "
+                        "Calinski-Harabasz both peak at k = 2; Davies-Bouldin barely moves across k, so it does not decide.")
+    with tab3:
+        show(clu_profile_heatmap(clu, k, z))
+        med_table = med.copy()
+        med_table.index = [clu["feature_labels"][f] for f in med_table.index]
+        med_table.columns = [f"cluster {c}" for c in med_table.columns]
+        text("section", "Median measurements per cluster, original units")
+        st.dataframe(med_table.round(2), width="stretch")
+    with tab4:
+        text("section", "Every k from the notebook's sweep")
+        st.dataframe(sw.rename(columns={"k": "k", "inertia": "Inertia", "silhouette": "Silhouette", "davies_bouldin": "Davies-Bouldin",
+                                        "calinski_harabasz": "Calinski-Harabasz"}).round(4), hide_index=True, width="stretch")
+        text("caption", f"The reported model is k = {clu['best_k']}: silhouette {best['silhouette']:.3f}, Davies-Bouldin "
+                        f"{best['davies_bouldin']:.2f}, Calinski-Harabasz {best['calinski_harabasz']:,.0f}. The NASA dispositions "
+                        "were never used for fitting; they only appear in the composition chart and the mix on the result card.")
+
+
 def page_about():
-    cls, reg = load_bundles()
+    cls, reg, clu = load_bundles()
     hero("plain", "23CSE301 · ML capstone", "About the models", ICON_ORBIT,
          "What the models were trained on, how all of them compare on the same held-out splits, and how to run "
          "everything yourself. Every model listed here can be selected on its page.",
          [(f"{len(reg['models'])}", "regression models"), (f"{len(cls['models'])}", "classification runs"),
-          ("2", "datasets"), ("42", "random state")])
+          ("1", "clustering model"), ("3", "datasets"), ("42", "random state")])
 
     c1, c2 = st.columns(2, gap="large")
     with c1:
@@ -970,6 +1276,19 @@ def page_about():
                     f'All {len(reg["models"])} regressors are saved and selectable on the stock page.</div>'
                     f'</div></div>', unsafe_allow_html=True)
         show(comparison_bars(results_table(reg, REG_COLUMNS), "R2", reg["best"], "All ten regressors by test R2"))
+
+    sw = clu["sweep"]
+    best = sw.loc[sw["k"] == clu["best_k"]].iloc[0]
+    st.markdown(f'<div class="spec-card"><div class="spec-head">{ICON_SURVEY}Clustering, TESS objects of interest</div>'
+                f'<div class="spec"><div class="k">Data</div><div class="v">NASA TESS Objects of Interest table from the Exoplanet Archive, '
+                f'{clu["n_rows"]:,} transit-like signals, downloaded {clu["downloaded"]}.</div>'
+                f'<div class="k">Features</div><div class="v">{len(clu["features"])} physical measurements of the signal, the implied planet and the host star. '
+                f'The seven heavy-tailed ones are log-scaled, all are clipped at the 1st/99th percentile, median-filled and standardised.</div>'
+                f'<div class="k">Labels</div><div class="v">The TFOPWG disposition is never used for fitting; it is read in afterwards to see what each cluster holds.</div>'
+                f'<div class="k">Model</div><div class="v">K-Means swept from k = 2 to 10. Reported model k = {clu["best_k"]}: silhouette {best["silhouette"]:.3f}, '
+                f'Davies-Bouldin {best["davies_bouldin"]:.2f}, Calinski-Harabasz {best["calinski_harabasz"]:,.0f}. Agglomerative clustering, the dendrogram and t-SNE are the teammate\'s half.</div>'
+                f'</div></div>', unsafe_allow_html=True)
+    show(clu_k_chart(clu, clu["best_k"]))
 
     tab1, tab2 = st.tabs(["Full results tables", "Dataset overview"])
     with tab1:
@@ -999,6 +1318,7 @@ def page_about():
 pages = [
     st.Page(page_classifier, title="Exoplanet classifier", icon=":material/planet:", default=True),
     st.Page(page_regression, title="Stock return predictor", icon=":material/finance_mode:", url_path="stocks"),
+    st.Page(page_clustering, title="TESS cluster explorer", icon=":material/satellite_alt:", url_path="clusters"),
     st.Page(page_about, title="About the models", icon=":material/info:", url_path="about"),
 ]
 nav = st.navigation(pages, position="hidden")
@@ -1010,7 +1330,7 @@ with st.sidebar:
         st.page_link(p, width="stretch")
     st.markdown("---")
     st.toggle(":material/dark_mode: Dark mode", key="dark")
-    text("side-note", "Two trained models from the capstone notebooks, served from the saved files in <code>models/</code>. "
+    text("side-note", "Models from the three capstone notebooks, served from the saved files in <code>models/</code>. "
                       "Predictions are computed on the spot and nothing you enter is stored.")
 
 try:
