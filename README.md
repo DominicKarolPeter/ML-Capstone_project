@@ -99,8 +99,22 @@ one-vs-rest ROC-AUC.
 | K-Nearest Neighbors (baseline) | 0.774 | 0.771 | 0.901 |
 | Gaussian Naive Bayes | 0.614 | 0.619 | 0.877 |
 
-Part B (Random Forest, AdaBoost, Gradient Boosting, Bagging and MLP classifiers)
-and the consolidated 10-algorithm table are Review 2 deliverables.
+**Results, Part B so far.** Same split and metrics. Random Forest was tuned over
+`n_estimators`, `max_depth` and `min_samples_split`, AdaBoost over `n_estimators`
+and `learning_rate`, and the MLP over hidden layer sizes, activation and the L2
+penalty (a single layer of 128 `relu` units with `alpha = 0.1` and early stopping
+won), all with 5-fold GridSearchCV on weighted F1.
+
+| Model | Accuracy | Weighted F1 | ROC-AUC (OvR) |
+|---|---|---|---|
+| Random Forest (tuned) | 0.864 | 0.859 | 0.963 |
+| AdaBoost (tuned) | 0.830 | 0.826 | 0.930 |
+| MLP Classifier (tuned) | 0.818 | 0.812 | 0.944 |
+| MLP Classifier (baseline) | 0.805 | 0.804 | 0.928 |
+
+Gradient Boosting and Bagging are still to be added. Section 22 of the notebook
+holds the consolidated comparison table across every model so far, and the final
+model choice is made once all ten are in.
 
 ## Clustering track
 
