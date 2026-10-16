@@ -25,6 +25,7 @@ from sklearn.metrics import (accuracy_score, calinski_harabasz_score, classifica
                              roc_auc_score, silhouette_score)
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler, label_binarize
@@ -67,6 +68,7 @@ NOTEBOOK_REGRESSION = {
 NOTEBOOK_CLASSIFICATION = {
     "SVC": 0.8197, "Decision Tree (tuned)": 0.8190, "Logistic Regression": 0.8132, "Decision Tree (baseline)": 0.7938,
     "KNN (tuned)": 0.7822, "KNN (baseline)": 0.7705, "Gaussian Naive Bayes": 0.6186,
+    "MLP (tuned)": 0.8124, "MLP (baseline)": 0.8043,
 }
 
 
@@ -215,7 +217,7 @@ def export_classification():
     classes = sorted(y.unique().tolist())
     y_bin = label_binarize(y_test, classes=classes)
 
-    #every part-a classifier with the settings the notebook used or its grid searches picked
+    #every classifier in the notebook (part a, plus part b as sections land) with the settings it used or its grid search picked
     specs = [
         ("SVC", SVC(kernel="rbf", C=10, gamma="scale", probability=True, random_state=RANDOM_STATE), "RBF kernel, C 10"),
         ("Decision Tree (tuned)", DecisionTreeClassifier(criterion="gini", max_depth=8, min_samples_leaf=1, min_samples_split=2,
@@ -225,6 +227,10 @@ def export_classification():
         ("KNN (tuned)", KNeighborsClassifier(n_neighbors=5, metric="manhattan"), "k 5, manhattan"),
         ("KNN (baseline)", KNeighborsClassifier(n_neighbors=5, metric="minkowski"), "k 5, minkowski"),
         ("Gaussian Naive Bayes", GaussianNB(), "default settings"),
+        ("MLP (tuned)", MLPClassifier(hidden_layer_sizes=(128,), activation="relu", alpha=0.1, solver="adam", early_stopping=True,
+                                      validation_fraction=0.1, n_iter_no_change=15, max_iter=400, random_state=RANDOM_STATE),
+         "128 relu units, alpha 0.1, early stopping"),
+        ("MLP (baseline)", MLPClassifier(max_iter=500, random_state=RANDOM_STATE), "100 relu units, defaults"),
     ]
     models = {}
     for name, est, params in specs:

@@ -325,7 +325,7 @@ def model_picker(bundle, key, chips):
     with left:
         name = st.selectbox("Model", bundle["model_order"], key=key,
                             format_func=lambda n: f"{n}  (best)" if n == bundle["best"] else n,
-                            help="Every Review 1 model is available. The best one on the held-out split is selected by default.")
+                            help="Every model from the notebooks is available. The best one on the held-out split is selected by default.")
     m = bundle["models"][name]
     with right:
         st.markdown('<div class="chips model-chips">' + "".join(
@@ -993,7 +993,7 @@ def page_classifier():
     cls, reg, clu = load_bundles()
     best, total = cls["models"][cls["best"]]["metrics"], cls["class_counts_all"]
     hero("space", "Classification · NASA Kepler", "Exoplanet classifier", ICON_PLANET,
-         "Pick any of the five Review 1 classifiers (the tuned Support Vector Classifier, the best, is selected by "
+         "Pick any of the classifiers built so far (the tuned Support Vector Classifier, the best, is selected by "
          "default), enter what Kepler measured for a transit signal and its host star, and it decides whether the "
          "object looks like a confirmed planet, a candidate or a false positive, shows how sure it is, and places "
          "it among the objects it learned from.",
@@ -1263,7 +1263,7 @@ def page_about():
                     f'All {len(cls["models"])} runs are saved and selectable on the classifier page.</div>'
                     f'</div></div>', unsafe_allow_html=True)
         show(grouped_metric_bars(results_table(cls, CLS_COLUMNS), list(CLS_COLUMNS), [T["blue"], T["teal"], T["amber"]],
-                                 "Part A classifiers on the same held-out split"))
+                                 "Classifiers on the same held-out split"))
     with c2:
         st.markdown(f'<div class="spec-card"><div class="spec-head">{ICON_CHART}Regression, next-year stock returns</div>'
                     f'<div class="spec"><div class="k">Data</div><div class="v">200+ Financial Indicators of US Stocks (Kaggle), 2018 slice, '
