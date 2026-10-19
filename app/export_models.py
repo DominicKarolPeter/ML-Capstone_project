@@ -16,8 +16,8 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.cluster import KMeans
 from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import (AdaBoostClassifier, GradientBoostingRegressor,
+                              RandomForestClassifier, RandomForestRegressor)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
 from sklearn.metrics import (accuracy_score, calinski_harabasz_score, classification_report, confusion_matrix,
@@ -66,6 +66,8 @@ NOTEBOOK_REGRESSION = {
     "Lasso": 0.0385, "Decision Tree": 0.0367, "KNN": 0.0359, "Linear": 0.0339, "Polynomial": 0.0158,
 }
 NOTEBOOK_CLASSIFICATION = {
+    "Random Forest (tuned)": 0.8576, "Random Forest (baseline)": 0.8612,
+    "AdaBoost (tuned)": 0.8264, "AdaBoost (baseline)": 0.8022,
     "SVC": 0.8197, "Decision Tree (tuned)": 0.8190, "Logistic Regression": 0.8132, "Decision Tree (baseline)": 0.7938,
     "KNN (tuned)": 0.7822, "KNN (baseline)": 0.7705, "Gaussian Naive Bayes": 0.6186,
     "MLP (tuned)": 0.8124, "MLP (baseline)": 0.8043,
@@ -219,6 +221,12 @@ def export_classification():
 
     #every classifier in the notebook (part a, plus part b as sections land) with the settings it used or its grid search picked
     specs = [
+        ("Random Forest (tuned)", RandomForestClassifier(n_estimators=300, max_depth=20, min_samples_split=5, random_state=RANDOM_STATE),
+         "300 trees, max depth 20, min split 5"),
+        ("Random Forest (baseline)", RandomForestClassifier(random_state=RANDOM_STATE), "default 100 trees, unlimited depth"),
+        ("AdaBoost (tuned)", AdaBoostClassifier(n_estimators=200, learning_rate=1.0, random_state=RANDOM_STATE),
+         "200 estimators, learning rate 1.0"),
+        ("AdaBoost (baseline)", AdaBoostClassifier(random_state=RANDOM_STATE), "default 50 estimators, learning rate 1.0"),
         ("SVC", SVC(kernel="rbf", C=10, gamma="scale", probability=True, random_state=RANDOM_STATE), "RBF kernel, C 10"),
         ("Decision Tree (tuned)", DecisionTreeClassifier(criterion="gini", max_depth=8, min_samples_leaf=1, min_samples_split=2,
                                                          random_state=RANDOM_STATE), "gini, max depth 8"),
