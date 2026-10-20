@@ -16,7 +16,7 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.cluster import KMeans
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import (AdaBoostClassifier, GradientBoostingRegressor,
+from sklearn.ensemble import (AdaBoostClassifier, GradientBoostingClassifier, GradientBoostingRegressor,
                               RandomForestClassifier, RandomForestRegressor)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
@@ -66,7 +66,8 @@ NOTEBOOK_REGRESSION = {
     "Lasso": 0.0385, "Decision Tree": 0.0367, "KNN": 0.0359, "Linear": 0.0339, "Polynomial": 0.0158,
 }
 NOTEBOOK_CLASSIFICATION = {
-    "Random Forest (tuned)": 0.8576, "Random Forest (baseline)": 0.8612,
+    "Random Forest (tuned)": 0.8593, "Random Forest (baseline)": 0.8600,
+    "Gradient Boosting (tuned)": 0.8532, "Gradient Boosting (baseline)": 0.8612,
     "AdaBoost (tuned)": 0.8264, "AdaBoost (baseline)": 0.8022,
     "SVC": 0.8197, "Decision Tree (tuned)": 0.8190, "Logistic Regression": 0.8132, "Decision Tree (baseline)": 0.7938,
     "KNN (tuned)": 0.7822, "KNN (baseline)": 0.7705, "Gaussian Naive Bayes": 0.6186,
@@ -227,6 +228,11 @@ def export_classification():
         ("AdaBoost (tuned)", AdaBoostClassifier(n_estimators=200, learning_rate=1.0, random_state=RANDOM_STATE),
          "200 estimators, learning rate 1.0"),
         ("AdaBoost (baseline)", AdaBoostClassifier(random_state=RANDOM_STATE), "default 50 estimators, learning rate 1.0"),
+        ("Gradient Boosting (tuned)", GradientBoostingClassifier(n_estimators=150, learning_rate=0.1, max_depth=2,
+                                                                 random_state=RANDOM_STATE),
+         "150 stages, learning rate 0.1, max depth 2"),
+        ("Gradient Boosting (baseline)", GradientBoostingClassifier(random_state=RANDOM_STATE),
+         "default 100 stages, learning rate 0.1, max depth 3"),
         ("SVC", SVC(kernel="rbf", C=10, gamma="scale", probability=True, random_state=RANDOM_STATE), "RBF kernel, C 10"),
         ("Decision Tree (tuned)", DecisionTreeClassifier(criterion="gini", max_depth=8, min_samples_leaf=1, min_samples_split=2,
                                                          random_state=RANDOM_STATE), "gini, max depth 8"),

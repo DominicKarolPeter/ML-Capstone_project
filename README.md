@@ -5,14 +5,14 @@ Course: 23CSE301 Machine Learning (B.Tech. CSE, III year), Academic Year 2026-27
 End-to-end machine learning pipelines for the three capstone tracks: data loading,
 EDA, cleaning and feature engineering, model training and comparison,
 hyperparameter tuning and result visualisation. Review 1 (full regression track
-plus classification Part A) is complete. For Review 2 the clustering track is under
-way (K-Means half done) and classification Part B is pending.
+plus classification Part A) is complete. Review 2 includes both clustering
+algorithms and the ensemble and MLP classification sections.
 
 | Track | Dataset | Status |
 |---|---|---|
 | Regression | 200+ Financial Indicators of US Stocks (2018 slice) | Complete: all 10 algorithms, final comparison, top-2 cross-validation |
-| Classification | NASA Kepler Objects of Interest (KOI) | Part A complete: all 5 algorithms; Part B in Review 2 |
-| Clustering | NASA TESS Objects of Interest (TOI) | In progress: K-Means, metrics table and PCA plots done; Agglomerative, dendrogram and t-SNE pending |
+| Classification | NASA Kepler Objects of Interest (KOI) | Part A complete; Part B includes Random Forest, AdaBoost, MLP and Gradient Boosting |
+| Clustering | NASA TESS Objects of Interest (TOI) | K-Means and Agglomerative analyses complete |
 
 ## Repository structure
 
@@ -82,7 +82,7 @@ automatically from the Exoplanet Archive and saves it to `data/kepler_koi.csv`
 (not committed). The target is `koi_disposition`; the disposition score and the
 false-positive flags are excluded from the features to avoid leakage.
 
-**Pipeline.** 99 numeric features plus an engineered `transit_depth_per_hour`,
+**Pipeline.** 99 numeric features including an engineered `transit_depth_per_hour`,
 stratified 80/20 split, median imputation and standard scaling inside each model
 pipeline (fitted on training folds only), weighted precision/recall/F1 and
 one-vs-rest ROC-AUC.
@@ -99,22 +99,27 @@ one-vs-rest ROC-AUC.
 | K-Nearest Neighbors (baseline) | 0.774 | 0.771 | 0.901 |
 | Gaussian Naive Bayes | 0.614 | 0.619 | 0.877 |
 
-**Results, Part B so far.** Same split and metrics. Random Forest was tuned over
+**Results, Part B.** Same split and metrics. Random Forest was tuned over
 `n_estimators`, `max_depth` and `min_samples_split`, AdaBoost over `n_estimators`
-and `learning_rate`, and the MLP over hidden layer sizes, activation and the L2
+and `learning_rate`, Gradient Boosting over `n_estimators` and `learning_rate`,
+and the MLP over hidden layer sizes, activation and the L2
 penalty (a single layer of 128 `relu` units with `alpha = 0.1` and early stopping
 won), all with 5-fold GridSearchCV on weighted F1.
 
 | Model | Accuracy | Weighted F1 | ROC-AUC (OvR) |
 |---|---|---|---|
+| Gradient Boosting (baseline) | 0.864 | 0.861 | 0.963 |
+| Random Forest (baseline) | 0.863 | 0.860 | 0.962 |
 | Random Forest (tuned) | 0.864 | 0.859 | 0.963 |
+| Gradient Boosting (tuned) | 0.856 | 0.853 | 0.961 |
 | AdaBoost (tuned) | 0.830 | 0.826 | 0.930 |
 | MLP Classifier (tuned) | 0.818 | 0.812 | 0.944 |
 | MLP Classifier (baseline) | 0.805 | 0.804 | 0.928 |
 
-Gradient Boosting and Bagging are still to be added. Section 22 of the notebook
-holds the consolidated comparison table across every model so far, and the final
-model choice is made once all ten are in.
+The default Gradient Boosting model narrowly leads this held-out split. Its
+cross-validation-selected setting scores lower on the test set, so both are
+reported. Bagging is still to be added. Section 23 of the notebook compares
+every implemented classifier.
 
 ## Clustering track
 
@@ -125,7 +130,7 @@ candidate, confirmed or known planet, false positive, false alarm) is used only
 afterwards to read what each cluster contains.
 
 **Dataset.** [NASA TESS Objects of Interest (TOI)](https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=TOI)
-from the Exoplanet Archive: 8,148 TOIs and 91 columns at download (14 Oct 2026;
+from the Exoplanet Archive: 8,151 TOIs and 91 columns at download (19 Oct 2026;
 the live table grows over time). The notebook downloads it automatically to
 `data/tess_toi.csv` (not committed) from the archive's direct CSV link:
 <https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+toi&format=csv>
@@ -137,14 +142,15 @@ are log10-transformed, every feature is clipped at the 1st/99th percentile,
 missing values take the column median, and everything is standardised. No
 train/test split: clustering has no target to hold out.
 
-**Results so far.** K-Means with k = 2, chosen because silhouette (0.275) and
-Calinski-Harabasz (2,967) both peak there, Davies-Bouldin (1.50) is nearly flat
+**Results.** K-Means with k = 2, chosen because silhouette (0.275) and
+Calinski-Harabasz (2,969) both peak there, Davies-Bouldin (1.50) is nearly flat
 across k, and the elbow has no sharp bend. The two clusters are small planets around nearby, cool,
 compact stars (34% of TOIs, 28.6% of them confirmed or known planets) and
 Jupiter-sized signals around distant, hotter, larger stars (66%, 20.4% false
-positives, where 80% of all false positives land). Pending: Agglomerative
-Hierarchical clustering with the dendrogram and linkage comparison, the t-SNE
-plot, and the two-algorithm comparison.
+positives, where about 80% of all false positives land). Complete-linkage
+Agglomerative clustering with k = 2 scores silhouette 0.194, Davies-Bouldin
+1.84 and Calinski-Harabasz 1,777. The notebook includes Ward and complete
+dendrograms, linkage comparisons, cluster profiles, t-SNE and two-algorithm plots.
 
 ## Setup
 
@@ -163,8 +169,8 @@ jupyter notebook
 
 ## Interactive app (Streamlit)
 
-A web interface serves every Review 1 model, all ten regressors for next-year
-stock returns and all seven classifier runs for Kepler objects, plus the
+A web interface serves all ten regressors for next-year stock returns and the
+implemented classifier runs for Kepler objects, plus the
 K-Means clustering of TESS objects. The supervised pages have a model selector
 (the best model on the held-out split is chosen by default) and an "All models"
 view that scores the same inputs with every model at once; the clustering page
@@ -181,8 +187,8 @@ one reproduces the notebook's held-out score, and saves them together with
 everything the app draws from: training medians and percentiles, per-class
 typical values, each model's confusion matrix, per-class scores and test-set
 predictions, sector statistics and a sample of training objects. The app loads
-these from `models/`, so it runs without the raw datasets. The three bundles
-total about 16 MB and are committed so the deployed app can load them.
+these from `models/`, so it runs without the raw datasets. The bundles are
+committed so the deployed app can load them.
 
 Pages:
 
@@ -198,7 +204,7 @@ Pages:
   sector, and the selected model's actual-vs-predicted on the held-out set.
 - **TESS cluster explorer** (sky-survey banner): pick k from 2 to 10, enter a
   signal's eleven measurements, see which K-Means cluster it joins and how central
-  it is, then the object among all 8,148 TESS objects in PCA space, the elbow and
+  it is, then the object among the TESS objects in PCA space, the elbow and
   metric curves used to choose k, the cluster profiles, and what each cluster
   contains once the dispositions are read in afterwards.
 - **About the models**: datasets, preprocessing, the full comparison charts and tables

@@ -1,8 +1,6 @@
 """Streamlit interface for the 23CSE301 ML Capstone.
 
-Serves the two best models from the notebooks:
-  * classification -> tuned SVC, classifies a Kepler Object of Interest
-  * regression     -> tuned Random Forest, predicts a stock's next-year price change (%)
+Serves the notebook models, including the highest scoring classifier on the held-out split.
 
 Run from the repo root:
     streamlit run app/app.py
@@ -993,7 +991,7 @@ def page_classifier():
     cls, reg, clu = load_bundles()
     best, total = cls["models"][cls["best"]]["metrics"], cls["class_counts_all"]
     hero("space", "Classification · NASA Kepler", "Exoplanet classifier", ICON_PLANET,
-         "Pick any of the classifiers built so far (the tuned Support Vector Classifier, the best, is selected by "
+         "Pick any of the classifiers built so far (the highest scoring model on the held-out split is selected by "
          "default), enter what Kepler measured for a transit signal and its host star, and it decides whether the "
          "object looks like a confirmed planet, a candidate or a false positive, shows how sure it is, and places "
          "it among the objects it learned from.",
