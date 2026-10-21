@@ -5,13 +5,14 @@ Course: 23CSE301 Machine Learning (B.Tech. CSE, III year), Academic Year 2026-27
 End-to-end machine learning pipelines for the three capstone tracks: data loading,
 EDA, cleaning and feature engineering, model training and comparison,
 hyperparameter tuning and result visualisation. Review 1 (full regression track
-plus classification Part A) is complete. Review 2 includes both clustering
-algorithms and the ensemble and MLP classification sections.
+plus classification Part A) is complete, and so is Review 2: both clustering
+algorithms, the five Part B classifiers, the ten-algorithm comparison and the
+final model selection.
 
 | Track | Dataset | Status |
 |---|---|---|
 | Regression | 200+ Financial Indicators of US Stocks (2018 slice) | Complete: all 10 algorithms, final comparison, top-2 cross-validation |
-| Classification | NASA Kepler Objects of Interest (KOI) | Part A complete; Part B includes Random Forest, AdaBoost, MLP and Gradient Boosting |
+| Classification | NASA Kepler Objects of Interest (KOI) | Complete: all 10 algorithms (Part A and Part B), ten-algorithm table, final model chosen by cross-validation |
 | Clustering | NASA TESS Objects of Interest (TOI) | K-Means and Agglomerative analyses complete |
 
 ## Repository structure
@@ -102,9 +103,8 @@ one-vs-rest ROC-AUC.
 **Results, Part B.** Same split and metrics. Random Forest was tuned over
 `n_estimators`, `max_depth` and `min_samples_split`, AdaBoost over `n_estimators`
 and `learning_rate`, Gradient Boosting over `n_estimators` and `learning_rate`,
-and the MLP over hidden layer sizes, activation and the L2
-penalty (a single layer of 128 `relu` units with `alpha = 0.1` and early stopping
-won), all with 5-fold GridSearchCV on weighted F1.
+Bagging over `n_estimators`, `max_samples` and `max_features` (100 trees on half the features won), and the MLP over hidden layer sizes, activation
+and the L2 penalty, all with 5-fold GridSearchCV on weighted F1.
 
 | Model | Accuracy | Weighted F1 | ROC-AUC (OvR) |
 |---|---|---|---|
@@ -112,14 +112,27 @@ won), all with 5-fold GridSearchCV on weighted F1.
 | Random Forest (baseline) | 0.863 | 0.860 | 0.962 |
 | Random Forest (tuned) | 0.864 | 0.859 | 0.963 |
 | Gradient Boosting (tuned) | 0.856 | 0.853 | 0.961 |
+| Bagging (tuned) | 0.857 | 0.853 | 0.961 |
+| Bagging (baseline) | 0.844 | 0.844 | 0.947 |
 | AdaBoost (tuned) | 0.830 | 0.826 | 0.930 |
 | MLP Classifier (tuned) | 0.818 | 0.812 | 0.944 |
+| AdaBoost (baseline) | 0.807 | 0.802 | 0.922 |
 | MLP Classifier (baseline) | 0.805 | 0.804 | 0.928 |
 
-The default Gradient Boosting model narrowly leads this held-out split. Its
-cross-validation-selected setting scores lower on the test set, so both are
-reported. Bagging is still to be added. Section 23 of the notebook compares
-every implemented classifier.
+Section 24 of the notebook holds the consolidated table of every run, and
+Section 25 reduces it to one row per algorithm (the ten-algorithm table with
+accuracy, weighted precision, recall, F1 and ROC-AUC).
+
+**Final model.** The tuned Random Forest (300 trees, max depth 20, min samples
+split 5) is the final classifier. It was chosen by 5-fold cross-validation on
+the training rows, where it has the highest weighted F1 of all ten algorithms
+(0.8473, std 0.0062; tuned Bagging 0.8453, default Gradient Boosting 0.8437,
+the Part A winner SVC 0.8193). Tuning raised its CV weighted F1 from 0.8425 for
+the default forest to 0.8473 and its held-out ROC-AUC from 0.962 to 0.963. On
+the test set it scores accuracy 0.864, weighted F1 0.859 and ROC-AUC 0.963, up
+from 0.822, 0.820 and 0.944 for the SVC. The default Gradient Boosting edges it
+by 0.002 F1 on this one split but scores lower in cross-validation, so it is
+reported, not chosen.
 
 ## Clustering track
 
@@ -169,12 +182,13 @@ jupyter notebook
 
 ## Interactive app (Streamlit)
 
-A web interface serves all ten regressors for next-year stock returns and the
-implemented classifier runs for Kepler objects, plus the
-K-Means clustering of TESS objects. The supervised pages have a model selector
-(the best model on the held-out split is chosen by default) and an "All models"
-view that scores the same inputs with every model at once; the clustering page
-has a k selector covering the notebook's whole sweep.
+A web interface serves all ten regressors for next-year stock returns, every
+classifier run for Kepler objects (Parts A and B), and both clusterings of TESS
+objects. The supervised pages have a model selector (the best model on the
+held-out split is chosen by default) and an "All models" view that scores the
+same inputs with every model at once; the clustering page switches between
+K-Means, with a k selector covering the notebook's whole sweep, and the
+complete-linkage Agglomerative cut at k = 2.
 
 ```bash
 python app/export_models.py   # rebuilds models/ using the notebooks' exact preprocessing
@@ -202,11 +216,15 @@ Pages:
   among the training companies, how much each input moves the prediction
   (one-at-a-time sensitivity), what every regressor predicts, typical returns by
   sector, and the selected model's actual-vs-predicted on the held-out set.
-- **TESS cluster explorer** (sky-survey banner): pick k from 2 to 10, enter a
-  signal's eleven measurements, see which K-Means cluster it joins and how central
-  it is, then the object among the TESS objects in PCA space, the elbow and
-  metric curves used to choose k, the cluster profiles, and what each cluster
-  contains once the dispositions are read in afterwards.
+- **TESS cluster explorer** (sky-survey banner): pick K-Means (any k from 2 to
+  10) or Agglomerative clustering (the complete-linkage cut at k = 2), enter a
+  signal's eleven measurements, see which cluster it joins and how central it
+  is, then the object among the 8,151 TESS objects in PCA space, the elbow and
+  metric curves used to choose k or the dendrogram and three-linkage sweep used
+  to choose the cut, the cluster profiles, a side-by-side metrics comparison of
+  the two reported models, and what each cluster contains once the dispositions
+  are read in afterwards. Agglomerative clustering has no predict step, so a new
+  object is placed with the nearest cluster mean, and the page says so.
 - **About the models**: datasets, preprocessing, the full comparison charts and tables
   for all tracks, and run instructions.
 
@@ -221,14 +239,19 @@ The three model bundles in `models/` are committed (they are the only `.pkl`
 files not ignored), so the app deploys straight from this repository without
 the raw datasets. On [share.streamlit.io](https://share.streamlit.io) choose
 this repository, branch `main`, main file `app/app.py`, and Python 3.13 under
-advanced settings. `requirements.txt` pins scikit-learn to 1.9.0, the exact
-version the models were saved with, so they load without version warnings.
+advanced settings. `requirements.txt` pins scikit-learn to 1.9.0 and pandas
+below 3.0, the versions the models were saved with, so they load without
+version warnings. Rebuild the bundles only from an environment installed with
+`pip install -r requirements.txt`: a bundle saved with a newer pandas cannot be
+unpickled by the deployed app at all.
 
 ## Reproducibility notes
 
 - `random_state=42` everywhere, with a consistent stratified 80/20 split within each track.
 - All scalers, encoders and imputers are fitted on the training split only.
 - Every notebook runs top to bottom without errors; figures are saved under `notebooks/figures/`.
+- The TOI table is live and grows over time. All clustering results, figures and the app bundle use
+  the same 19 Oct 2026 download (8,151 rows); a fresh download will shift counts and scores slightly.
 
 ## AI Assistance Disclosure
 
