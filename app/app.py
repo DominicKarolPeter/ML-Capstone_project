@@ -179,10 +179,22 @@ REG_COLUMNS = {"R2": "R2", "RMSE": "RMSE", "MAE": "MAE"}
 
 
 @st.cache_resource(show_spinner=False)
+def load_bundle(name, stamp):
+    #stamp is the file's modification time, so a freshly pulled bundle replaces the cached one without a restart
+    return joblib.load(MODELS / name)
+
+
 def load_bundles():
-    return (joblib.load(MODELS / "classification_models.pkl"),
-            joblib.load(MODELS / "regression_models.pkl"),
-            joblib.load(MODELS / "clustering_kmeans.pkl"))
+    return tuple(load_bundle(name, (MODELS / name).stat().st_mtime)
+                 for name in ("classification_models.pkl", "regression_models.pkl", "clustering_kmeans.pkl"))
+
+
+def final_model_text(cls):
+    #the notebook's final choice when the bundle carries it, the top of the held-out table otherwise
+    final = cls.get("final_model")
+    if final:
+        return f'{final["name"]}, {final["why"]}'
+    return f'{cls["best"]}, the highest weighted F1 on the held-out split.'
 
 
 def results_table(bundle, columns):
@@ -820,29 +832,39 @@ def clu_vector(clu, values):
     return clu["scaler"].transform(frame)[0]
 
 
-def clu_assign(clu, k, vec):
-    #nearest centroid, inverse-square-distance weights for the other centres, and how central the object is inside its cluster
+def clu_model(clu, algo, k):
+    #labels and centres of the chosen model: k-means for any k in the sweep, the notebook's complete-linkage cut for agglomerative
+    if algo == "Agglomerative":
+        ag = clu["agglomerative"]
+        return {"algo": algo, "k": ag["k"], "labels": np.asarray(ag["labels"]), "centers": np.asarray(ag["means"], dtype=float),
+                "names": ag["cluster_names"], "title": f"Agglomerative ({ag['linkage']} linkage, k = {ag['k']})", "centre": "cluster mean"}
     km = clu["kmeans"][k]
-    d = np.linalg.norm(km.cluster_centers_ - vec, axis=1)
+    return {"algo": algo, "k": k, "labels": km.labels_, "centers": km.cluster_centers_, "names": clu["cluster_names"].get(k, {}),
+            "title": f"K-Means (k = {k})", "centre": "centroid"}
+
+
+def clu_assign(clu, m, vec):
+    #nearest centre, inverse-square-distance weights for the other centres, and how central the object is inside its cluster
+    d = np.linalg.norm(m["centers"] - vec, axis=1)
     c = int(d.argmin())
     w = 1 / np.maximum(d, 1e-9) ** 2
     w = w / w.sum()
-    members = clu["X_scaled"][km.labels_ == c]
-    member_d = np.linalg.norm(members - km.cluster_centers_[c], axis=1)
+    members = clu["X_scaled"][m["labels"] == c]
+    member_d = np.linalg.norm(members - m["centers"][c], axis=1)
     closer_than = float((member_d > d[c]).mean() * 100)
     return c, d, w, closer_than
 
 
-def clu_profile(clu, k):
-    labels = clu["kmeans"][k].labels_
+def clu_profile(clu, m):
+    labels = m["labels"]
     z = pd.DataFrame(clu["X_scaled"], columns=clu["features"]).groupby(labels).mean().T
     med = pd.DataFrame(clu["X_raw"], columns=clu["features"]).groupby(labels).median().T
     return z, med
 
 
-def clu_describe(clu, k, c, z):
-    #hand-written names for the reported model, the three biggest deviations otherwise
-    names = clu["cluster_names"].get(k, {})
+def clu_describe(clu, m, c, z):
+    #hand-written names for the reported models, the three biggest deviations otherwise
+    names = m["names"]
     if c in names:
         return names[c]
     top = z[c].sort_values(key=np.abs, ascending=False).head(3)
@@ -852,13 +874,14 @@ def clu_describe(clu, k, c, z):
     return ", ".join(f"{'high' if v > 0 else 'low'} {short(f)}" for f, v in top.items())
 
 
-def clu_mix(clu, k):
-    labels = pd.Series(clu["kmeans"][k].labels_, name="cluster")
+def clu_mix(clu, m):
+    labels = pd.Series(m["labels"], name="cluster")
     mix = pd.crosstab(labels, pd.Series(clu["disp_group"], name="group"), normalize="index") * 100
     return mix.reindex(columns=[g for g in ["planet", "candidate", "not a planet", "unknown"] if g in mix.columns], fill_value=0)
 
 
-def cluster_card(clu, k, c, w, closer_than, desc, mix_row):
+def cluster_card(clu, m, c, w, closer_than, desc, mix_row):
+    k = m["k"]
     pal = cluster_palette(k)
     color = pal[c]
     circ = 2 * np.pi * 46
@@ -897,7 +920,7 @@ def cluster_card(clu, k, c, w, closer_than, desc, mix_row):
     <div class="center"><div class="pct mono" data-count="{closer_than:.0f}" data-suffix="%" data-dec="0">0%</div><div class="lbl">of the cluster sits farther from the centre</div></div></div>
   <div class="info"><span class="badge">Cluster {c} of {k}</span>
     <div class="desc">{desc[0].upper() + desc[1:]}.</div>
-    <div class="small">Nearest centre by distance in standardised feature space; the bars share out the closeness to every centre.</div>{rows}
+    <div class="small">Nearest {m['centre']} by distance in standardised feature space; the bars share out the closeness to every centre.</div>{rows}
     <div class="mixrow">{chips}</div><div class="small">What this cluster contains, read from the dispositions after fitting.</div></div>
 </div>
 <script>
@@ -911,20 +934,20 @@ requestAnimationFrame(()=>setTimeout(()=>{{
     st.iframe(result_card_html(body, css), height=250)
 
 
-def clu_pca_scatter(clu, k, user=None):
-    km, pal, P, ev = clu["kmeans"][k], cluster_palette(k), clu["X_pca"], clu["explained_variance"]
+def clu_pca_scatter(clu, m, user=None):
+    k, pal, P, ev = m["k"], cluster_palette(m["k"]), clu["X_pca"], clu["explained_variance"]
     toi, disp = np.array(clu["toi"]), np.array(clu["disposition"])
     fig = go.Figure()
     for c in range(k):
-        m = km.labels_ == c
-        fig.add_trace(go.Scattergl(x=P[m, 0], y=P[m, 1], mode="markers", name=f"cluster {c} (n={int(m.sum()):,})",
+        sel = m["labels"] == c
+        fig.add_trace(go.Scattergl(x=P[sel, 0], y=P[sel, 1], mode="markers", name=f"cluster {c} (n={int(sel.sum()):,})",
                                    marker=dict(color=pal[c], size=4, opacity=.45),
-                                   text=[f"TOI {t}<br>{d}" for t, d in zip(toi[m], disp[m])],
+                                   text=[f"TOI {t}<br>{d}" for t, d in zip(toi[sel], disp[sel])],
                                    hovertemplate="%{text}<extra>cluster " + str(c) + "</extra>"))
-    cen = clu["pca"].transform(pd.DataFrame(km.cluster_centers_, columns=clu["features"]))
-    fig.add_trace(go.Scatter(x=cen[:, 0], y=cen[:, 1], mode="markers", name="centroids",
+    cen = clu["pca"].transform(pd.DataFrame(m["centers"], columns=clu["features"]))
+    fig.add_trace(go.Scatter(x=cen[:, 0], y=cen[:, 1], mode="markers", name=m["centre"] + "s",
                              marker=dict(symbol="x", size=13, color=T["text"], line=dict(color=T["bg"], width=1.5)),
-                             hovertemplate="centroid of cluster %{pointNumber}<extra></extra>"))
+                             hovertemplate=m["centre"] + " of cluster %{pointNumber}<extra></extra>"))
     if user is not None:
         u = clu["pca"].transform(pd.DataFrame([user], columns=clu["features"]))[0]
         fig.add_trace(go.Scatter(x=[u[0]], y=[u[1]], mode="markers", name="your object",
@@ -933,7 +956,7 @@ def clu_pca_scatter(clu, k, user=None):
                                  hovertemplate="your object<extra></extra>"))
     fig.update_xaxes(title=f"PC1 ({ev[0] * 100:.1f}% of variance)")
     fig.update_yaxes(title=f"PC2 ({ev[1] * 100:.1f}% of variance)")
-    return themed(fig, 440, f"{clu['n_rows']:,} TESS objects in PCA space, coloured by K-Means cluster (k = {k})")
+    return themed(fig, 440, f"{clu['n_rows']:,} TESS objects in PCA space, coloured by {m['title']} cluster")
 
 
 def clu_k_chart(clu, k):
@@ -969,8 +992,8 @@ def clu_profile_heatmap(clu, k, z):
     return themed(fig, 32 * len(labels) + 110, "How each cluster differs from the average TESS object (standard units)", legend=False)
 
 
-def clu_mix_chart(clu, k):
-    mix = clu_mix(clu, k)
+def clu_mix_chart(clu, m):
+    mix, k = clu_mix(clu, m), m["k"]
     colors = {"planet": T["teal"], "candidate": T["amber"], "not a planet": T["red"], "unknown": T["faint"]}
     fig = go.Figure()
     for g in mix.columns:
@@ -983,6 +1006,52 @@ def clu_mix_chart(clu, k):
     fig.update_yaxes(autorange="reversed")
     fig = themed(fig, max(34 * k + 210, 290), "What each cluster contains")
     fig.update_layout(legend=dict(orientation="h", y=-0.42, yanchor="top", x=0), margin=dict(t=46, b=90))
+    return fig
+
+
+def clu_linkage_chart(clu):
+    #the agglomerative sweep: three linkages, k from 2 to 6, the reported cut highlighted
+    from plotly.subplots import make_subplots
+    ag, sw = clu["agglomerative"], clu["agglomerative"]["sweep"]
+    panels = [("silhouette", "Silhouette, higher is better"), ("davies_bouldin", "Davies-Bouldin, lower is better"),
+              ("calinski_harabasz", "Calinski-Harabasz, higher is better")]
+    colors = {"ward": T["violet"], "complete": T["pink"], "average": T["cyan"]}
+    fig = make_subplots(rows=1, cols=3, subplot_titles=[t for _, t in panels], horizontal_spacing=.08)
+    for i, (col, _) in enumerate(panels, start=1):
+        for method, part in sw.groupby("linkage", sort=False):
+            fig.add_trace(go.Scatter(x=part["k"], y=part[col], mode="lines+markers", name=f"{method} linkage", legendgroup=method,
+                                     showlegend=(i == 1), line=dict(color=colors[method], width=2.5), marker=dict(size=7),
+                                     hovertemplate=method + ", k = %{x}<br>%{y:.4g}<extra></extra>"), row=1, col=i)
+        sel = sw[(sw["linkage"] == ag["linkage"]) & (sw["k"] == ag["k"])].iloc[0]
+        fig.add_trace(go.Scatter(x=[sel["k"]], y=[sel[col]], mode="markers", showlegend=False, hoverinfo="skip",
+                                 marker=dict(size=15, color=colors[ag["linkage"]], line=dict(color=T["text"], width=2))), row=1, col=i)
+        fig.update_xaxes(title_text="k", tickvals=list(range(2, 7)), row=1, col=i)
+    themed(fig, 340, "Cutting the hierarchy: three linkages and every k from 2 to 6, the reported cut highlighted")
+    fig.update_layout(legend=dict(orientation="h", y=-0.28, yanchor="top", x=0), margin=dict(t=56, b=70))
+    fig.update_xaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"], title_font=dict(size=11, color=T["muted"]))
+    fig.update_yaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"])
+    fig.update_annotations(font=dict(size=11, color=T["text"]))
+    return fig
+
+
+def clu_metrics_compare(clu):
+    #the two reported models side by side on the three internal metrics
+    from plotly.subplots import make_subplots
+    best = clu["sweep"].loc[clu["sweep"]["k"] == clu["best_k"]].iloc[0]
+    ag = clu["agglomerative"]["metrics"]
+    rows = [("Silhouette, higher is better", best["silhouette"], ag["Silhouette"], ".3f"),
+            ("Davies-Bouldin, lower is better", best["davies_bouldin"], ag["Davies-Bouldin"], ".2f"),
+            ("Calinski-Harabasz, higher is better", best["calinski_harabasz"], ag["Calinski-Harabasz"], ",.0f")]
+    names = [f"K-Means (k = {clu['best_k']})", f"Agglomerative (k = {clu['agglomerative']['k']})"]
+    fig = make_subplots(rows=1, cols=3, subplot_titles=[r[0] for r in rows], horizontal_spacing=.1)
+    for i, (_, km_v, ag_v, fmt) in enumerate(rows, start=1):
+        fig.add_trace(go.Bar(x=names, y=[km_v, ag_v], marker_color=[T["violet"], T["pink"]], showlegend=False,
+                             text=[format(km_v, fmt), format(ag_v, fmt)], textposition="outside",
+                             hovertemplate="%{x}<br>%{y:.4g}<extra></extra>"), row=1, col=i)
+    themed(fig, 330, "The two reported models on the same scaled features", legend=False)
+    fig.update_xaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"], tickfont=dict(size=10))
+    fig.update_yaxes(gridcolor=T["grid"], zerolinecolor=T["grid"], linecolor=T["grid"], rangemode="tozero")
+    fig.update_annotations(font=dict(size=11, color=T["text"]))
     return fig
 
 
@@ -1159,30 +1228,46 @@ def page_regression():
 
 def page_clustering():
     cls, reg, clu = load_bundles()
-    sw = clu["sweep"]
+    sw, ag = clu["sweep"], clu["agglomerative"]
     best = sw.loc[sw["k"] == clu["best_k"]].iloc[0]
     hero("survey", "Clustering · NASA TESS objects of interest", "TESS cluster explorer", ICON_SURVEY,
-         "K-Means groups the TESS Objects of Interest by their physical measurements alone, with no labels during fitting. "
-         "Pick a number of clusters, enter a signal's measurements, and see which group it joins, how close to the centre "
-         "it sits, and what that group contains once the NASA dispositions are read back in afterwards.",
-         [(f"{clu['n_rows']:,}", "TESS objects"), (f"{len(clu['features'])}", "measurements"),
-          (f"k = {clu['best_k']}", "reported model"), (f"{best['silhouette']:.3f}", "silhouette")])
+         "Two algorithms group the TESS Objects of Interest by their physical measurements alone, with no labels during "
+         "fitting: K-Means, and Agglomerative clustering that merges objects into a hierarchy. Pick an algorithm, enter a "
+         "signal's measurements, and see which group it joins, how close to the centre it sits, and what that group "
+         "contains once the NASA dispositions are read back in afterwards.",
+         [(f"{clu['n_rows']:,}", "TESS objects"), (f"{len(clu['features'])}", "measurements"), ("2", "algorithms"),
+          (f"{best['silhouette']:.3f} · {ag['metrics']['Silhouette']:.3f}", "silhouette, K-Means · Agglomerative")])
 
     left, right = st.columns([5, 7], gap="large")
     with left:
-        k = st.selectbox("Number of clusters", list(range(2, 11)), key="clu_k",
-                         format_func=lambda v: f"k = {v}  (reported model)" if v == clu["best_k"] else f"k = {v}",
-                         help="The notebook swept every k from 2 to 10. Silhouette and Calinski-Harabasz both peak at k = 2.")
-    row = sw.loc[sw["k"] == k].iloc[0]
+        algo = st.radio("Algorithm", ["K-Means", "Agglomerative"], key="clu_algo", horizontal=True,
+                        help="K-Means places k centroids and moves them until every object sits with its nearest one. Agglomerative "
+                             "clustering starts with every object alone and merges the closest groups until k remain; with complete "
+                             "linkage the distance between two groups is their farthest pair.")
+        if algo == "K-Means":
+            k = st.selectbox("Number of clusters", list(range(2, 11)), key="clu_k",
+                             format_func=lambda v: f"k = {v}  (reported model)" if v == clu["best_k"] else f"k = {v}",
+                             help="The notebook swept every k from 2 to 10. Silhouette and Calinski-Harabasz both peak at k = 2.")
+        else:
+            k = ag["k"]
+            st.selectbox("Number of clusters", [k], key="clu_k_agg", disabled=True,
+                         format_func=lambda v: f"k = {v}  (reported cut, {ag['linkage']} linkage)",
+                         help="The notebook compared Ward, complete and average linkage for k from 2 to 6 and kept the "
+                              "complete-linkage cut at k = 2, the best silhouette among cuts with no tiny cluster.")
+    m = clu_model(clu, algo, k)
+    if algo == "K-Means":
+        row = sw.loc[sw["k"] == k].iloc[0]
+        chips = [(f"{row['silhouette']:.3f}", "silhouette"), (f"{row['davies_bouldin']:.2f}", "Davies-Bouldin"),
+                 (f"{row['calinski_harabasz']:,.0f}", "Calinski-Harabasz"), (f"{row['inertia']:,.0f}", "inertia")]
+    else:
+        chips = [(f"{ag['metrics']['Silhouette']:.3f}", "silhouette"), (f"{ag['metrics']['Davies-Bouldin']:.2f}", "Davies-Bouldin"),
+                 (f"{ag['metrics']['Calinski-Harabasz']:,.0f}", "Calinski-Harabasz"), (" / ".join(f"{n:,}" for n in ag["sizes"]), "cluster sizes")]
     with right:
         st.markdown('<div class="chips model-chips">' + "".join(
-            f'<span class="chip" style="--i:{i}"><b>{v}</b>{n}</span>' for i, (v, n) in enumerate([
-                (f"{row['silhouette']:.3f}", "silhouette"), (f"{row['davies_bouldin']:.2f}", "Davies-Bouldin"),
-                (f"{row['calinski_harabasz']:,.0f}", "Calinski-Harabasz"), (f"{row['inertia']:,.0f}", "inertia")]))
-            + '</div>', unsafe_allow_html=True)
+            f'<span class="chip" style="--i:{i}"><b>{v}</b>{n}</span>' for i, (v, n) in enumerate(chips)) + '</div>', unsafe_allow_html=True)
 
     text("section", "Measurements of a TESS object")
-    text("hint", "Pre-filled with the median object. Change what you know, then place it. Switching k above re-places the same object.")
+    text("hint", "Pre-filled with the median object. Change what you know, then place it. Switching the algorithm or k above re-places the same object.")
     with st.form("clu_form"):
         values = number_inputs(clu["features"], clu["feature_labels"], clu["feature_medians"], "u", ncols=4)
         a, b = st.columns([2, 1], gap="medium")
@@ -1194,36 +1279,50 @@ def page_clustering():
         if submitted:
             st.session_state["clu_inputs"] = values
 
-    z, med = clu_profile(clu, k)
+    z, med = clu_profile(clu, m)
     left, right = st.columns([7, 5], gap="large")
     if "clu_inputs" not in st.session_state:
         with left:
             text("empty", "Press <b>Place this object</b> to see which cluster it joins, how central it is, and where it lands "
-                          "among all TESS objects. The map below already shows the clusters for the chosen k.")
-            show(clu_pca_scatter(clu, k))
+                          "among all TESS objects. The map below already shows the clusters of the chosen model.")
+            show(clu_pca_scatter(clu, m))
         with right:
-            show(clu_mix_chart(clu, k))
+            show(clu_mix_chart(clu, m))
             text("caption", "Clusters are not dispositions: candidates dominate every cluster. What changes between clusters is "
                             "the share of confirmed planets and of false positives.")
         return
 
     values = st.session_state["clu_inputs"]
     vec = clu_vector(clu, values)
-    c, d, w, closer = clu_assign(clu, k, vec)
-    mix = clu_mix(clu, k)
+    c, d, w, closer = clu_assign(clu, m, vec)
+    mix = clu_mix(clu, m)
     with left:
-        cluster_card(clu, k, c, w, closer, clu_describe(clu, k, c, z), mix.loc[c])
+        cluster_card(clu, m, c, w, closer, clu_describe(clu, m, c, z), mix.loc[c])
+        if algo == "Agglomerative":
+            text("caption", "Agglomerative clustering has no predict step: the hierarchy was built once over all objects, so a new "
+                            "object is placed with the cluster whose mean is nearest in standardised feature space.")
     with right:
-        show(clu_mix_chart(clu, k))
-    tab1, tab2, tab3, tab4 = st.tabs(["Where it sits", "Choosing k", "Cluster profiles", "Report card"])
+        show(clu_mix_chart(clu, m))
+    tab1, tab2, tab3, tab4 = st.tabs(["Where it sits", "Choosing k" if algo == "K-Means" else "Cutting the tree", "Cluster profiles", "Report card"])
     with tab1:
-        show(clu_pca_scatter(clu, k, vec))
-        text("caption", "The star is your object, the crosses are the cluster centres. The two principal components keep "
+        show(clu_pca_scatter(clu, m, vec))
+        text("caption", f"The star is your object, the crosses are the {m['centre']}s. The two principal components keep "
                         f"{sum(clu['explained_variance']) * 100:.0f}% of the variance of the eleven measurements.")
     with tab2:
-        show(clu_k_chart(clu, k))
-        text("caption", "Inertia always falls as k grows, so the elbow is read from where the drops get small. Silhouette and "
-                        "Calinski-Harabasz both peak at k = 2; Davies-Bouldin barely moves across k, so it does not decide.")
+        if algo == "K-Means":
+            show(clu_k_chart(clu, k))
+            text("caption", "Inertia always falls as k grows, so the elbow is read from where the drops get small. Silhouette and "
+                            "Calinski-Harabasz both peak at k = 2; Davies-Bouldin barely moves across k, so it does not decide.")
+        else:
+            dendrogram = ROOT / "notebooks" / "figures" / "Agglomerative" / "dendrogram.png"
+            if dendrogram.exists():
+                st.image(str(dendrogram), width="stretch",
+                         caption="Ward and complete-linkage dendrograms from the notebook, truncated to the last 30 merges. "
+                                 "The height of a join is the distance at which two groups merged.")
+            show(clu_linkage_chart(clu))
+            text("caption", "Every cut of the three hierarchies, scored on the same metrics as K-Means. Ward makes the most even "
+                            "halves but scores lower; complete linkage at k = 2 is the best silhouette among cuts where no cluster "
+                            "is tiny. Average linkage leaves a handful of outliers alone, which inflates its scores without being useful.")
     with tab3:
         show(clu_profile_heatmap(clu, k, z))
         med_table = med.copy()
@@ -1232,12 +1331,22 @@ def page_clustering():
         text("section", "Median measurements per cluster, original units")
         st.dataframe(med_table.round(2), width="stretch")
     with tab4:
-        text("section", "Every k from the notebook's sweep")
-        st.dataframe(sw.rename(columns={"k": "k", "inertia": "Inertia", "silhouette": "Silhouette", "davies_bouldin": "Davies-Bouldin",
-                                        "calinski_harabasz": "Calinski-Harabasz"}).round(4), hide_index=True, width="stretch")
-        text("caption", f"The reported model is k = {clu['best_k']}: silhouette {best['silhouette']:.3f}, Davies-Bouldin "
-                        f"{best['davies_bouldin']:.2f}, Calinski-Harabasz {best['calinski_harabasz']:,.0f}. The NASA dispositions "
-                        "were never used for fitting; they only appear in the composition chart and the mix on the result card.")
+        show(clu_metrics_compare(clu))
+        text("caption", f"K-Means at k = {clu['best_k']} scores better on all three metrics than the complete-linkage cut at k = 2 "
+                        "on the same standardised features. Both split the sky survey the same way at heart: smaller, cooler, "
+                        "nearer systems against hot, large-planet signals around distant stars, so the two methods agree on the "
+                        "structure even though K-Means draws the tighter boundary.")
+        t1, t2 = st.columns(2, gap="large")
+        with t1:
+            text("section", "K-Means, every k from the notebook's sweep")
+            st.dataframe(sw.rename(columns={"k": "k", "inertia": "Inertia", "silhouette": "Silhouette", "davies_bouldin": "Davies-Bouldin",
+                                            "calinski_harabasz": "Calinski-Harabasz"}).round(4), hide_index=True, width="stretch")
+        with t2:
+            text("section", "Agglomerative, every linkage and cut compared")
+            st.dataframe(ag["sweep"].rename(columns={"linkage": "Linkage", "k": "k", "smallest_share": "Smallest cluster (%)",
+                                                    "silhouette": "Silhouette", "davies_bouldin": "Davies-Bouldin",
+                                                    "calinski_harabasz": "Calinski-Harabasz"}).round(4), hide_index=True, width="stretch")
+        text("caption", "The NASA dispositions were never used for fitting; they only appear in the composition chart and the mix on the result card.")
 
 
 def page_about():
@@ -1246,7 +1355,7 @@ def page_about():
          "What the models were trained on, how all of them compare on the same held-out splits, and how to run "
          "everything yourself. Every model listed here can be selected on its page.",
          [(f"{len(reg['models'])}", "regression models"), (f"{len(cls['models'])}", "classification runs"),
-          ("1", "clustering model"), ("3", "datasets"), ("42", "random state")])
+          ("2", "clustering models"), ("3", "datasets"), ("42", "random state")])
 
     c1, c2 = st.columns(2, gap="large")
     with c1:
@@ -1257,7 +1366,7 @@ def page_about():
                     f'plus an engineered depth-per-hour. The disposition score and false-positive flags are excluded to avoid leakage.</div>'
                     f'<div class="k">Preprocessing</div><div class="v">Median imputation and standard scaling, fitted on training folds only.</div>'
                     f'<div class="k">Split</div><div class="v">Stratified 80/20, {cls["n_train"]:,} train and {cls["n_test"]:,} test objects.</div>'
-                    f'<div class="k">Winner</div><div class="v">RBF-kernel SVC (C = 10), tuned with 5-fold GridSearchCV on weighted F1. '
+                    f'<div class="k">Final model</div><div class="v">{final_model_text(cls)} '
                     f'All {len(cls["models"])} runs are saved and selectable on the classifier page.</div>'
                     f'</div></div>', unsafe_allow_html=True)
         show(grouped_metric_bars(results_table(cls, CLS_COLUMNS), list(CLS_COLUMNS), [T["blue"], T["teal"], T["amber"]],
@@ -1275,7 +1384,7 @@ def page_about():
                     f'</div></div>', unsafe_allow_html=True)
         show(comparison_bars(results_table(reg, REG_COLUMNS), "R2", reg["best"], "All ten regressors by test R2"))
 
-    sw = clu["sweep"]
+    sw, ag = clu["sweep"], clu["agglomerative"]
     best = sw.loc[sw["k"] == clu["best_k"]].iloc[0]
     st.markdown(f'<div class="spec-card"><div class="spec-head">{ICON_SURVEY}Clustering, TESS objects of interest</div>'
                 f'<div class="spec"><div class="k">Data</div><div class="v">NASA TESS Objects of Interest table from the Exoplanet Archive, '
@@ -1283,14 +1392,21 @@ def page_about():
                 f'<div class="k">Features</div><div class="v">{len(clu["features"])} physical measurements of the signal, the implied planet and the host star. '
                 f'The seven heavy-tailed ones are log-scaled, all are clipped at the 1st/99th percentile, median-filled and standardised.</div>'
                 f'<div class="k">Labels</div><div class="v">The TFOPWG disposition is never used for fitting; it is read in afterwards to see what each cluster holds.</div>'
-                f'<div class="k">Model</div><div class="v">K-Means swept from k = 2 to 10. Reported model k = {clu["best_k"]}: silhouette {best["silhouette"]:.3f}, '
-                f'Davies-Bouldin {best["davies_bouldin"]:.2f}, Calinski-Harabasz {best["calinski_harabasz"]:,.0f}. Agglomerative clustering, the dendrogram and t-SNE are the teammate\'s half.</div>'
+                f'<div class="k">Models</div><div class="v">K-Means swept from k = 2 to 10, reported at k = {clu["best_k"]}: silhouette {best["silhouette"]:.3f}, '
+                f'Davies-Bouldin {best["davies_bouldin"]:.2f}, Calinski-Harabasz {best["calinski_harabasz"]:,.0f}. Agglomerative clustering with Ward, complete and '
+                f'average linkage compared for k from 2 to 6, reported as the {ag["linkage"]}-linkage cut at k = {ag["k"]}: silhouette {ag["metrics"]["Silhouette"]:.3f}, '
+                f'Davies-Bouldin {ag["metrics"]["Davies-Bouldin"]:.2f}, Calinski-Harabasz {ag["metrics"]["Calinski-Harabasz"]:,.0f}. '
+                f'Both are visualised in PCA space, the hierarchy also through dendrograms and t-SNE.</div>'
                 f'</div></div>', unsafe_allow_html=True)
-    show(clu_k_chart(clu, clu["best_k"]))
+    k1, k2 = st.columns([7, 5], gap="large")
+    with k1:
+        show(clu_k_chart(clu, clu["best_k"]))
+    with k2:
+        show(clu_metrics_compare(clu))
 
     tab1, tab2 = st.tabs(["Full results tables", "Dataset overview"])
     with tab1:
-        text("section", "Classification, Part A (ranked by weighted F1)")
+        text("section", "Classification, every run from Parts A and B (ranked by weighted F1)")
         st.dataframe(results_table(cls, CLS_COLUMNS), hide_index=True, width="stretch",
                      column_config={c: st.column_config.NumberColumn(format="%.4f") for c in CLS_COLUMNS})
         text("section", "Regression (ranked by test R2)")
