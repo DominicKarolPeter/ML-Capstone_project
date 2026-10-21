@@ -18,7 +18,7 @@ from scipy.cluster.hierarchy import cut_tree, linkage
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
-from sklearn.ensemble import (AdaBoostClassifier, GradientBoostingClassifier, GradientBoostingRegressor,
+from sklearn.ensemble import (AdaBoostClassifier, BaggingClassifier, GradientBoostingClassifier, GradientBoostingRegressor,
                               RandomForestClassifier, RandomForestRegressor)
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
@@ -74,7 +74,10 @@ NOTEBOOK_CLASSIFICATION = {
     "SVC": 0.8197, "Decision Tree (tuned)": 0.8190, "Logistic Regression": 0.8132, "Decision Tree (baseline)": 0.7938,
     "KNN (tuned)": 0.7822, "KNN (baseline)": 0.7705, "Gaussian Naive Bayes": 0.6186,
     "MLP (tuned)": 0.8124, "MLP (baseline)": 0.8043,
+    "Bagging (tuned)": 0.8532, "Bagging (baseline)": 0.8443,
 }
+#the notebook's final choice (classification.ipynb, section 25), chosen by 5-fold cross-validation on the training rows
+FINAL_CLASSIFIER = {"name": "Random Forest (tuned)", "why": "chosen by 5-fold cross-validation on the training rows, where its weighted F1 of 0.8473 is the highest of all ten algorithms; 300 trees, max depth 20, min samples split 5. Held-out: accuracy 0.864, weighted F1 0.859, ROC-AUC 0.963."}
 
 
 def export_regression():
@@ -247,6 +250,11 @@ def export_classification():
                                       validation_fraction=0.1, n_iter_no_change=15, max_iter=400, random_state=RANDOM_STATE),
          "128 relu units, alpha 0.1, early stopping"),
         ("MLP (baseline)", MLPClassifier(max_iter=500, random_state=RANDOM_STATE), "100 relu units, defaults"),
+        ("Bagging (tuned)", BaggingClassifier(estimator=DecisionTreeClassifier(random_state=RANDOM_STATE), n_estimators=100,
+                                             max_samples=1.0, max_features=0.5, bootstrap=True, random_state=RANDOM_STATE),
+         "100 full trees, 100% of rows and 50% of features per tree"),
+        ("Bagging (baseline)", BaggingClassifier(estimator=DecisionTreeClassifier(random_state=RANDOM_STATE), random_state=RANDOM_STATE),
+         "default 10 full trees, all rows and features"),
     ]
     models = {}
     for name, est, params in specs:
@@ -282,7 +290,8 @@ def export_classification():
     bundle = {
         "models": models,
         "model_order": order,
-        "best": order[0],
+        "best": FINAL_CLASSIFIER["name"],
+        "final_model": FINAL_CLASSIFIER,
         "feature_columns": features,
         "key_features": key_features,
         "classes": classes,

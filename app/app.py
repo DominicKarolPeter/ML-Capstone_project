@@ -329,13 +329,13 @@ def text(kind, body):
     st.markdown(f'<div class="{kind}">{body}</div>', unsafe_allow_html=True)
 
 
-def model_picker(bundle, key, chips):
-    #selectbox on the left, the chosen model's held-out scores on the right
+def model_picker(bundle, key, chips, tag="best", why="The best one on the held-out split is selected by default."):
+    #selectbox on the left, the chosen model's held-out scores on the right; the default is the bundle's reported model
     left, right = st.columns([5, 7], gap="large")
     with left:
-        name = st.selectbox("Model", bundle["model_order"], key=key,
-                            format_func=lambda n: f"{n}  (best)" if n == bundle["best"] else n,
-                            help="Every model from the notebooks is available. The best one on the held-out split is selected by default.")
+        name = st.selectbox("Model", bundle["model_order"], key=key, index=bundle["model_order"].index(bundle["best"]),
+                            format_func=lambda n: f"{n}  ({tag})" if n == bundle["best"] else n,
+                            help=f"Every model from the notebooks is available. {why}")
     m = bundle["models"][name]
     with right:
         st.markdown('<div class="chips model-chips">' + "".join(
@@ -1060,14 +1060,14 @@ def page_classifier():
     cls, reg, clu = load_bundles()
     best, total = cls["models"][cls["best"]]["metrics"], cls["class_counts_all"]
     hero("space", "Classification · NASA Kepler", "Exoplanet classifier", ICON_PLANET,
-         "Pick any of the classifiers built so far (the highest scoring model on the held-out split is selected by "
+         f"Pick any of the ten classifiers (the notebook's final model, {cls['best']}, is selected by "
          "default), enter what Kepler measured for a transit signal and its host star, and it decides whether the "
          "object looks like a confirmed planet, a candidate or a false positive, shows how sure it is, and places "
          "it among the objects it learned from.",
          [(f"{sum(total.values()):,}", "objects"), (f"{total.get('CONFIRMED', 0):,}", "confirmed planets"),
-          (f"{len(cls['models'])}", "model runs"), (f"{best['F1_Weighted']:.3f}", "best weighted F1")])
+          (f"{len(cls['models'])}", "model runs"), (f"{best['F1_Weighted']:.3f}", "final model weighted F1")])
 
-    name, m = model_picker(cls, "cls_model", lambda m: [
+    name, m = model_picker(cls, "cls_model", tag="final model", why="The notebook's final model, chosen by cross-validation, is selected by default.", chips=lambda m: [
         (f"{m['metrics']['F1_Weighted']:.3f}", "weighted F1"), (f"{m['metrics']['Accuracy']:.1%}", "accuracy"),
         (f"{m['metrics']['ROC_AUC_OvR']:.3f}", "ROC-AUC"), (m["params"], "settings")])
 
