@@ -9,11 +9,64 @@ plus classification Part A) is complete, and so is Review 2: both clustering
 algorithms, the five Part B classifiers, the ten-algorithm comparison and the
 final model selection.
 
-| Track | Dataset | Status |
-|---|---|---|
-| Regression | 200+ Financial Indicators of US Stocks (2018 slice) | Complete: all 10 algorithms, final comparison, top-2 cross-validation |
-| Classification | NASA Kepler Objects of Interest (KOI) | Complete: all 10 algorithms (Part A and Part B), ten-algorithm table, final model chosen by cross-validation |
-| Clustering | NASA TESS Objects of Interest (TOI) | K-Means and Agglomerative analyses complete |
+| Track | Dataset | Status | Best result |
+|---|---|---|---|
+| Regression | 200+ Financial Indicators of US Stocks (2018 slice) | Complete: all 10 algorithms, final comparison, top-2 cross-validation | Random Forest, R2 0.111 |
+| Classification | NASA Kepler Objects of Interest (KOI) | Complete: all 10 algorithms (Part A and Part B), ten-algorithm table, final model chosen by cross-validation | Tuned Random Forest, weighted F1 0.859, ROC-AUC 0.963 |
+| Clustering | NASA TESS Objects of Interest (TOI) | K-Means and Agglomerative analyses complete | K-Means, k = 2, silhouette 0.275 |
+
+Contents: [How the pieces fit](#how-the-pieces-fit) · [Repository structure](#repository-structure) · [Regression](#regression-track) · [Classification](#classification-track) · [Clustering](#clustering-track) · [Setup](#setup) · [App](#interactive-app-streamlit) · [Reproducibility](#reproducibility-notes)
+
+## How the pieces fit
+
+Each track lives in one notebook. The export script refits the notebooks' winning
+models and saves them as bundles, and the Streamlit app serves the bundles, so the
+app never needs the raw datasets.
+
+```mermaid
+flowchart LR
+  subgraph data["Datasets"]
+    A1["Kaggle 2018 financial indicators<br/>4,392 companies x 225 columns"]
+    A2["NASA Kepler KOI table<br/>9,564 objects x 153 columns"]
+    A3["NASA TESS TOI table<br/>8,151 objects x 91 columns"]
+  end
+  subgraph nb["Notebooks"]
+    B1["regression.ipynb<br/>10 regressors"]
+    B2["classification.ipynb<br/>10 classifiers, Parts A and B"]
+    B3["clustering.ipynb<br/>K-Means and Agglomerative"]
+  end
+  C["app/export_models.py<br/>refits every model with the notebook settings<br/>and checks each score reproduces"]
+  D["models/<br/>three .pkl bundles, committed"]
+  E["app/app.py<br/>Streamlit, four pages"]
+  A1 --> B1
+  A2 --> B2
+  A3 --> B3
+  B1 --> C
+  B2 --> C
+  B3 --> C
+  C --> D --> E
+```
+
+Every supervised notebook follows the same order, and the clustering notebook
+mirrors it without a split or a target:
+
+```mermaid
+flowchart TD
+  subgraph sup["Supervised tracks"]
+    S1["Load and audit<br/>shape, dtypes, missing values, target mix"] --> S2["EDA<br/>distributions, correlations, target plots"]
+    S2 --> S3["Cleaning and feature engineering<br/>drop leakage columns, one engineered feature"]
+    S3 --> S4["Stratified 80/20 split, random_state 42<br/>pipeline per model: median imputation and scaling<br/>fitted on training folds only"]
+    S4 --> S5["Baseline run, then GridSearchCV with 5 folds<br/>regression on R2, classification on weighted F1"]
+    S5 --> S6["One evaluation on the held-out test set<br/>comparison table, figures, final model chosen by cross-validation"]
+  end
+  subgraph clu["Clustering track"]
+    K1["Load and audit, labels set aside<br/>EDA on 11 physical measurements"] --> K2["log10, clip at the 1st and 99th percentile,<br/>median imputation, standardise"]
+    K2 --> K3["K-Means sweep, k = 2 to 10<br/>elbow, silhouette, Davies-Bouldin, Calinski-Harabasz"]
+    K2 --> K4["Agglomerative, Ward, complete and average linkage<br/>dendrograms, cuts at k = 2 to 6"]
+    K3 --> K5["Metrics comparison, PCA and t-SNE views<br/>labels read in afterwards to describe each cluster"]
+    K4 --> K5
+  end
+```
 
 ## Repository structure
 
@@ -67,6 +120,8 @@ split only, and one engineered feature
 | Linear Regression | 0.034 | 47.45 | 33.47 |
 | Polynomial Regression | 0.016 | 47.89 | 33.15 |
 
+![Test R2 and RMSE for all ten regression models](notebooks/figures/Comparison/regression_model_comparison.png)
+
 5-fold cross-validated R2 for the top two models: Random Forest 0.061,
 Gradient Boosting 0.074. Every model lands at a low R2, which is the honest
 finding for this problem: annual fundamentals explain only a small share of
@@ -86,7 +141,16 @@ false-positive flags are excluded from the features to avoid leakage.
 **Pipeline.** 99 numeric features including an engineered `transit_depth_per_hour`,
 stratified 80/20 split, median imputation and standard scaling inside each model
 pipeline (fitted on training folds only), weighted precision/recall/F1 and
-one-vs-rest ROC-AUC.
+one-vs-rest ROC-AUC. Every classifier sits behind the same preprocessing steps,
+so inside cross-validation each fold refits them on its own training part:
+
+```mermaid
+flowchart LR
+  X["99 numeric features<br/>of one object"] --> I["SimpleImputer<br/>median of the training fold"]
+  I --> S["StandardScaler<br/>fitted on the training fold"]
+  S --> M["Classifier<br/>baseline or tuned settings"]
+  M --> P["Class probabilities<br/>CONFIRMED, CANDIDATE, FALSE POSITIVE"]
+```
 
 **Results, Part A.** Held-out test set, ranked by weighted F1.
 
@@ -119,6 +183,8 @@ and the L2 penalty, all with 5-fold GridSearchCV on weighted F1.
 | AdaBoost (baseline) | 0.807 | 0.802 | 0.922 |
 | MLP Classifier (baseline) | 0.805 | 0.804 | 0.928 |
 
+![Weighted F1 and ROC-AUC for all seventeen classification runs](notebooks/figures/Comparison/classification_model_comparison_review2.png)
+
 Section 24 of the notebook holds the consolidated table of every run, and
 Section 25 reduces it to one row per algorithm (the ten-algorithm table with
 accuracy, weighted precision, recall, F1 and ROC-AUC).
@@ -133,6 +199,8 @@ the test set it scores accuracy 0.864, weighted F1 0.859 and ROC-AUC 0.963, up
 from 0.822, 0.820 and 0.944 for the SVC. The default Gradient Boosting edges it
 by 0.002 F1 on this one split but scores lower in cross-validation, so it is
 reported, not chosen.
+
+![Cross-validated against held-out weighted F1 for the best run of every algorithm](notebooks/figures/Comparison/final_model_selection.png)
 
 ## Clustering track
 
@@ -155,6 +223,18 @@ are log10-transformed, every feature is clipped at the 1st/99th percentile,
 missing values take the column median, and everything is standardised. No
 train/test split: clustering has no target to hold out.
 
+**Choosing k and the cut.** K-Means was swept from k = 2 to 10; the
+Agglomerative trees were built with Ward, complete and average linkage and cut
+at k = 2 to 6, keeping only cuts where every cluster holds at least 5% of the
+objects and then taking the best silhouette.
+
+<p align="center">
+  <img src="notebooks/figures/K-Means/elbow_curve.png" alt="K-Means elbow curve" width="42%">
+  <img src="notebooks/figures/K-Means/k_selection_metrics.png" alt="Silhouette, Davies-Bouldin and Calinski-Harabasz against k" width="56%">
+</p>
+
+![Ward and complete-linkage dendrograms, last 30 merges](notebooks/figures/Agglomerative/dendrogram.png)
+
 **Results.** K-Means with k = 2, chosen because silhouette (0.275) and
 Calinski-Harabasz (2,969) both peak there, Davies-Bouldin (1.50) is nearly flat
 across k, and the elbow has no sharp bend. The two clusters are small planets around nearby, cool,
@@ -169,6 +249,10 @@ dendrograms, linkage comparisons, cluster profiles, t-SNE and two-algorithm plot
 |---|---:|---:|---:|---:|
 | K-Means | 2 | 0.2752 | 1.5024 | 2,969 |
 | Agglomerative (complete linkage) | 2 | 0.1943 | 1.8368 | 1,777 |
+
+![Silhouette, Davies-Bouldin and Calinski-Harabasz for both algorithms](notebooks/figures/Comparison/clustering_metrics.png)
+
+![PCA scatter coloured by K-Means, by Agglomerative, and by the dispositions read in afterwards](notebooks/figures/Comparison/pca_all_algorithms.png)
 
 ## Setup
 
@@ -208,6 +292,16 @@ typical values, each model's confusion matrix, per-class scores and test-set
 predictions, sector statistics and a sample of training objects. The app loads
 these from `models/`, so it runs without the raw datasets. The bundles are
 committed so the deployed app can load them.
+
+```mermaid
+flowchart LR
+  U["User inputs on a page<br/>a transit signal, a company, a TESS object"] --> P["Same preprocessing as the notebook<br/>medians for missing inputs, log, clip, scale"]
+  P --> M["Selected model from the bundle"]
+  M --> R["Result card<br/>class probabilities, predicted return,<br/>or the cluster and how central the object is"]
+  M --> ALL["All models tab<br/>every run scored on the same inputs"]
+  B["models/*.pkl<br/>models, metrics, confusion matrices,<br/>training samples, sweep tables"] --> M
+  B --> T["Report card and About tabs<br/>confusion matrix, per-class scores,<br/>comparison charts"]
+```
 
 Pages:
 
