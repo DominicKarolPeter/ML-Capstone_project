@@ -28,7 +28,7 @@ final model selection.
 │   ├── classification.ipynb
 │   ├── clustering.ipynb
 │   └── figures/                 # saved plots, one folder per model plus Comparison/
-├── models/                      # saved best models (.pkl), built by app/export_models.py
+├── models/                      # saved model bundles (.pkl), built by app/export_models.py
 └── app/
     ├── app.py                   # Streamlit interface
     └── export_models.py         # rebuilds models/ with the notebooks' exact preprocessing
@@ -165,6 +165,11 @@ Agglomerative clustering with k = 2 scores silhouette 0.194, Davies-Bouldin
 1.84 and Calinski-Harabasz 1,777. The notebook includes Ward and complete
 dendrograms, linkage comparisons, cluster profiles, t-SNE and two-algorithm plots.
 
+| Clustering model | Clusters | Silhouette | Davies-Bouldin | Calinski-Harabasz |
+|---|---:|---:|---:|---:|
+| K-Means | 2 | 0.2752 | 1.5024 | 2,969 |
+| Agglomerative (complete linkage) | 2 | 0.1943 | 1.8368 | 1,777 |
+
 ## Setup
 
 ```bash
@@ -184,8 +189,8 @@ jupyter notebook
 
 A web interface serves all ten regressors for next-year stock returns, every
 classifier run for Kepler objects (Parts A and B), and both clusterings of TESS
-objects. The supervised pages have a model selector (the best model on the
-held-out split is chosen by default) and an "All models" view that scores the
+objects. The supervised pages have a model selector (the notebook's selected
+model is chosen by default) and an "All models" view that scores the
 same inputs with every model at once; the clustering page switches between
 K-Means, with a k selector covering the notebook's whole sweep, and the
 complete-linkage Agglomerative cut at k = 2.

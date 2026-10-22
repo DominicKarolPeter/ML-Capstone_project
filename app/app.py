@@ -1,6 +1,6 @@
 """Streamlit interface for the 23CSE301 ML Capstone.
 
-Serves the notebook models, including the highest scoring classifier on the held-out split.
+Serves the notebook models, including the final classifier chosen by cross-validation.
 
 Run from the repo root:
     streamlit run app/app.py
