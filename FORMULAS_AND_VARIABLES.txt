@@ -1,0 +1,248 @@
+MACHINE LEARNING CAPSTONE - FORMULAS AND VARIABLE GUIDE
+======================================================
+Based on the algorithm and metric requirements in the project guideline (.pdf).
+This is a study reference. Some library implementations add defaults or variants.
+
+HOW TO READ THE SYMBOLS
+-----------------------
+n = number of samples; p = number of input features; K = number of classes or clusters.
+x_i = feature vector for sample i; x_ij = feature j of sample i.
+y_i = actual target or class; yhat_i = predicted target or class.
+w or beta = learned feature weights; b or beta_0 = intercept.
+sum_i = add over samples; sum_j = add over features.
+||v||^2 = sum of squares of vector v; |v| = absolute value for a scalar.
+argmin/argmax = the input that makes a quantity smallest/largest.
+P(A|B) = probability of A given B; I(condition) = 1 if true, otherwise 0.
+log = natural logarithm; exp = exponential function.
+
+PREPROCESSING AND COMMON TOOLS
+------------------------------
+Standard scaling: z_ij = (x_ij - mu_j) / sigma_j
+  mu_j, sigma_j = training-set mean and standard deviation of feature j.
+  Fit these on training data only, then transform training and test data.
+
+Euclidean distance: d(x, z) = sqrt(sum_j (x_j - z_j)^2)
+  x, z = two feature vectors. Scaling matters when features have different units.
+
+Cross-validation mean: CV_score = (1/F) * sum_f score_f
+  F = number of folds (five for the requested 5-fold regression R2 check);
+  score_f = validation metric on fold f. Fit preprocessing within each fold.
+
+REGRESSION: 10 REQUIRED ALGORITHMS
+----------------------------------
+1. Linear Regression
+   yhat_i = beta_0 + sum_j beta_j*x_ij
+   Fit by minimizing sum_i (y_i - yhat_i)^2.
+   beta_j = change in prediction per unit of feature j, with other features fixed.
+
+2. Ridge Regression (L2)
+   Minimize sum_i (y_i - yhat_i)^2 + alpha*sum_j beta_j^2.
+   alpha >= 0 controls shrinkage; larger alpha usually gives smaller weights.
+   The intercept beta_0 is normally excluded from the penalty.
+
+3. Lasso Regression (L1)
+   Minimize (1/(2n))*sum_i (y_i - yhat_i)^2 + alpha*sum_j |beta_j|.
+   alpha controls the penalty; some beta_j can become exactly zero.
+
+4. ElasticNet Regression (L1 + L2)
+   Minimize (1/(2n))*sum_i (y_i - yhat_i)^2
+          + alpha*rho*sum_j |beta_j|
+          + (alpha*(1-rho)/2)*sum_j beta_j^2.
+   rho = l1_ratio in scikit-learn (0 to 1); alpha = overall penalty strength.
+
+5. Polynomial Regression
+   Example degree 2, two inputs: phi(x) = [1, x_1, x_2, x_1^2, x_1*x_2, x_2^2].
+   yhat = beta^T * phi(x); fit a linear model on expanded features phi(x).
+   degree = highest polynomial degree; coefficients remain linear in beta.
+
+6. Decision Tree Regressor
+   Choose split (feature j, threshold t) minimizing
+     (n_L/n_node)*MSE(L) + (n_R/n_node)*MSE(R).
+   MSE(S) = (1/|S|)*sum_(i in S) (y_i - mean_y_S)^2.
+   L/R = left/right child; a leaf predicts mean_y_S of its training samples.
+   max_depth = maximum number of split levels allowed.
+
+7. Random Forest Regressor
+   yhat(x) = (1/T)*sum_(t=1 to T) tree_t(x).
+   T = n_estimators (number of trees). Trees use bootstrap samples and random
+   feature subsets; averaging reduces prediction variance.
+
+8. Gradient Boosting Regressor (squared-error version)
+   F_m(x) = F_(m-1)(x) + eta*h_m(x).
+   For squared error, h_m learns residuals r_im = y_i - F_(m-1)(x_i).
+   m = boosting round; eta = learning_rate; h_m = new small regression tree.
+   Other loss functions use the negative gradient of their loss instead.
+
+9. Support Vector Regressor (epsilon-SVR)
+   f(x) = sum_i (a_i - a_i*)*K(x_i, x) + b.
+   Minimize (1/2)*||w||^2 + C*sum_i (xi_i + xi_i*) subject to
+     y_i - f(x_i) <= epsilon + xi_i,
+     f(x_i) - y_i <= epsilon + xi_i*, and xi_i,xi_i* >= 0.
+   epsilon = error-tube width; C = penalty for errors outside the tube;
+   xi_i,xi_i* = slack; a_i,a_i* = learned dual weights; K = kernel.
+   Linear kernel K(u,v)=u^T v; RBF kernel K(u,v)=exp(-gamma*||u-v||^2).
+
+10. K-Nearest Neighbors Regressor
+    yhat(x) = (1/k)*sum_(i in N_k(x)) y_i  [uniform weights].
+    N_k(x) = indices of the k closest training samples; k = n_neighbors.
+    Distance-weighted variant: yhat = sum_i q_i*y_i / sum_i q_i over N_k(x),
+    where q_i is a larger weight for a nearer neighbor.
+
+REGRESSION EVALUATION
+---------------------
+Residual: e_i = y_i - yhat_i.
+MAE = (1/n)*sum_i |e_i|. Lower is better; measured in target units.
+RMSE = sqrt((1/n)*sum_i e_i^2). Lower is better; penalizes large errors more.
+R2 = 1 - [sum_i e_i^2 / sum_i (y_i - ybar)^2].
+  ybar = mean actual target on the evaluation set. Higher is better;
+  R2 can be negative if predictions are worse than the constant ybar baseline.
+5-fold CV R2 = mean of the five held-out fold R2 scores (report spread too).
+
+CLASSIFICATION: 10 REQUIRED ALGORITHMS
+--------------------------------------
+1. Logistic Regression
+   Binary: P(y=1|x) = sigmoid(beta_0 + beta^T*x),
+           sigmoid(z) = 1/(1 + exp(-z)).
+   Odds = p/(1-p); log(odds) = beta_0 + beta^T*x.
+   exp(beta_j) = odds multiplier for a one-unit rise in feature j.
+   Multiclass softmax: P(y=c|x) = exp(s_c)/sum_l exp(s_l),
+   where s_c = beta_c^T*x + b_c. Predict the class with largest probability.
+
+2. K-Nearest Neighbors Classifier
+   yhat(x) = most frequent class among labels {y_i : i in N_k(x)}.
+   Estimated class probability = count of class c among k neighbors / k
+   for uniform weights. k = number of neighbors; N_k uses a distance metric.
+
+3. Gaussian Naive Bayes
+   P(y=c|x) proportional to P(y=c)*product_j P(x_j|y=c).
+   P(x_j|y=c) = [1/sqrt(2*pi*sigma_cj^2)]
+                  * exp(-(x_j-mu_cj)^2/(2*sigma_cj^2)).
+   mu_cj, sigma_cj^2 = mean and variance of feature j in class c;
+   P(y=c) = class prior. Assumes features are conditionally independent
+   given the class. Predict the class with largest posterior probability.
+
+4. Decision Tree Classifier
+   Gini(S) = 1 - sum_c p_c^2; entropy(S) = -sum_c p_c*log2(p_c).
+   Split gain = impurity(parent)
+              - (n_L/n_node)*impurity(L) - (n_R/n_node)*impurity(R).
+   p_c = fraction of class c in node S. Choose a split with largest gain.
+   A leaf predicts its most common class; max_depth limits tree depth.
+
+5. Support Vector Classifier (SVC)
+   Linear soft-margin model: minimize (1/2)*||w||^2 + C*sum_i xi_i,
+   subject to y_i*(w^T*x_i+b) >= 1-xi_i and xi_i >= 0,
+   where binary y_i is encoded as -1 or +1.
+   Decision score f(x) = sum_i a_i*y_i*K(x_i,x) + b.
+   C = misclassification penalty; xi_i = margin violation;
+   a_i = learned dual coefficient; K = kernel (linear or RBF as above).
+   Multiclass SVC combines binary classifiers (scikit-learn uses one-vs-one).
+
+6. Random Forest Classifier
+   p_hat(c|x) = (1/T)*sum_t p_t(c|x); yhat(x) = argmax_c p_hat(c|x).
+   p_t(c|x) = class-c probability from tree t (usually a leaf fraction).
+   T = n_estimators; each tree sees a bootstrap sample and random features.
+
+7. AdaBoost Classifier
+   Binary intuition: H(x) = sign(sum_(m=1 to M) a_m*h_m(x)).
+   Weighted training error e_m = sum_i D_m(i)*I(h_m(x_i) != y_i).
+   Binary learner weight a_m = 0.5*log((1-e_m)/e_m).
+   Update D_(m+1)(i) proportional to D_m(i)*exp(-a_m*y_i*h_m(x_i)).
+   D_m(i) = weight on sample i at round m; h_m = weak classifier;
+   M = n_estimators. Misclassified samples gain relative weight.
+   learning_rate scales each learner's contribution. Multiclass uses an
+   adapted rule (for example SAMME), so the binary equations are illustrative.
+
+8. Gradient Boosting Classifier
+   F_m,c(x) = F_(m-1),c(x) + eta*h_m,c(x).
+   For multiclass: P(y=c|x) = exp(F_M,c(x))/sum_l exp(F_M,l(x)).
+   Fit each new tree h_m,c to the negative gradient of classification loss
+   (usually log loss). eta = learning_rate; M = n_estimators;
+   c = class. Binary classification may use a sigmoid instead of softmax.
+
+9. Bagging Classifier
+   p_hat(c|x) = (1/T)*sum_t p_t(c|x) when base models give probabilities;
+   yhat(x) = argmax_c p_hat(c|x). Otherwise use a class vote.
+   h_t = base decision tree fitted on a bootstrap sample; T = n_estimators.
+   max_samples and max_features control sample and feature subsets.
+
+10. MLP Classifier (Neural Network)
+    a^(0) = x; z^(l) = W^(l)*a^(l-1) + b^(l);
+    a^(l) = activation(z^(l)); output = sigmoid(z) or softmax(z).
+    W^(l), b^(l) = weights and biases at layer l; a^(l) = activations.
+    hidden_layer_sizes = neurons in each hidden layer; activation may be
+    ReLU(z)=max(0,z), tanh(z), or logistic sigmoid.
+    Training minimizes classification loss by backpropagation.
+
+CLASSIFICATION EVALUATION
+-------------------------
+Confusion matrix entry C_ab = number of actual class a predicted as class b.
+For one chosen class c: TP = true positives, FP = false positives,
+FN = false negatives, TN = true negatives (all relative to c).
+Accuracy = correct predictions / n = sum_c C_cc / n.
+Precision_c = TP_c/(TP_c+FP_c): of predicted c cases, how many were c?
+Recall_c = TP_c/(TP_c+FN_c): of actual c cases, how many were found?
+F1_c = 2*Precision_c*Recall_c/(Precision_c+Recall_c)
+     = 2*TP_c/(2*TP_c+FP_c+FN_c).
+Weighted F1 = sum_c (n_c/n)*F1_c, where n_c = actual count of class c.
+Weighted precision/recall use the same n_c/n weighting of class scores.
+If a denominator is zero, the metric needs an explicit zero-division rule.
+
+ROC: TPR = TP/(TP+FN) = recall; FPR = FP/(FP+TN).
+Vary the classification score threshold and plot TPR against FPR.
+ROC-AUC = area under the ROC curve (0 to 1; larger is better).
+Multiclass one-vs-rest (OvR): for each class c, treat c as positive and all
+other classes as negative, compute AUC_c from class-c scores, then average
+the AUC_c values (macro or support-weighted; state which one you report).
+Use scores/probabilities for ROC-AUC, not final hard class predictions.
+
+CLUSTERING: 2 REQUIRED ALGORITHMS
+---------------------------------
+1. K-Means
+   Minimize inertia J = sum_i ||x_i - mu_(z_i)||^2.
+   z_i = assigned cluster of sample i; mu_c = centroid of cluster c;
+   k = number of clusters. Alternate nearest-centroid assignment and
+   centroid update mu_c = mean of points assigned to cluster c.
+   Elbow curve: plot J against k; seek a bend where extra clusters give
+   diminishing reductions in inertia. There is no universal elbow formula.
+
+2. Agglomerative Hierarchical Clustering
+   Start with one cluster per point; repeatedly merge the closest pair.
+   Complete linkage: d(A,B) = max_(a in A,b in B) d(a,b).
+   Average linkage: d(A,B) = mean_(a in A,b in B) d(a,b).
+   Single linkage: d(A,B) = min_(a in A,b in B) d(a,b).
+   Ward linkage merges the pair with smallest increase in within-cluster SSE:
+     Delta(A,B) = [|A|*|B|/(|A|+|B|)]*||mu_A-mu_B||^2.
+   A,B = clusters; |A|,|B| = cluster sizes; mu_A,mu_B = centroids.
+   Dendrogram height shows merge distance/cost; a horizontal cut yields k.
+
+CLUSTERING EVALUATION
+---------------------
+Silhouette for point i: s_i = (b_i-a_i)/max(a_i,b_i).
+  a_i = mean distance from i to other points in its own cluster;
+  b_i = smallest mean distance from i to points in another cluster.
+  Silhouette score = mean_i s_i; larger is better (range -1 to 1).
+
+Davies-Bouldin index: DB = (1/k)*sum_c max_(l != c)
+                               [(S_c+S_l)/d(mu_c,mu_l)].
+  S_c = mean distance of points in cluster c to centroid mu_c;
+  d(mu_c,mu_l) = distance between two centroids. Lower is better.
+
+Calinski-Harabasz index: CH = [B/(k-1)] / [W/(n-k)], where
+  W = sum_c sum_(i in c) ||x_i-mu_c||^2,
+  B = sum_c n_c*||mu_c-mu||^2.
+  mu = overall mean; n_c = size of cluster c; k = number of clusters.
+  Larger is better; requires 2 <= k < n.
+
+PCA (for the required 2D cluster plot):
+  S = covariance matrix of centered feature data.
+  S*v_j = lambda_j*v_j; PC_j(i) = v_j^T*(x_i-mu).
+  v_j = principal direction; lambda_j = variance along that direction;
+  PC_1 and PC_2 are the two plot coordinates. Color by cluster labels.
+  Explained variance ratio of component j = lambda_j/sum_l lambda_l.
+  PCA is for visualization here; fit clustering without ground-truth labels.
+
+IMPORTANT PROJECT-SPECIFIC REMINDER
+-----------------------------------
+Regression/classification metrics compare models on the same held-out split.
+Clustering ground-truth labels are used only after fitting for interpretation
+or validation, never to fit K-Means or Agglomerative Clustering.
