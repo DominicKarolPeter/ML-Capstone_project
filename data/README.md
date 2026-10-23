@@ -4,6 +4,8 @@ Raw datasets live here and are intentionally ignored by git so the repository
 stays small. The notebooks and `app/export_models.py` expect the files at the
 paths below.
 
+Column meanings for both NASA datasets are in [columns.md](columns.md).
+
 ## Regression: 200+ Financial Indicators of US Stocks (2018 slice)
 
 Source: https://www.kaggle.com/datasets/cnic92/200-financial-indicators-of-us-stocks-20142018
